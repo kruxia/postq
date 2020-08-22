@@ -3,7 +3,7 @@ from logging.config import fileConfig
 
 from sqlalchemy import create_engine
 
-import app.db
+import postq.tables
 from alembic import context
 
 # this is the Alembic Config object, which provides
@@ -18,7 +18,7 @@ fileConfig(config.config_file_name)
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-target_metadata = [app.db.metadata]
+target_metadata = [postq.tables.metadata]
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

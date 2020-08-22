@@ -3,8 +3,8 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 metadata = MetaData(schema='postq')
 
-Jobs = Table(
-    'jobs',
+Job = Table(
+    'job',
     metadata,
     Column(
         'id',
@@ -54,8 +54,8 @@ Jobs = Table(
 )
 
 # JobsLog = log of jobs that have been completed
-JobsLog = Table(
-    'jobs_log',
+JobLog = Table(
+    'job_log',
     metadata,
     Column('id', UUID, comment='(UUID) primary key from the jobs table',),
     Column(
