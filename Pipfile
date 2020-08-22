@@ -1,0 +1,18 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+black = "*"
+flake8 = "*"
+isort = "*"
+
+[packages]
+databases = {extras = ["postgresql"], version = "*"}
+alembic = "*"
+pydantic = "*"
+postq = {editable = true, path = "."}
+
+[requires]
+python_version = "3.8"

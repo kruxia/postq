@@ -1,0 +1,26 @@
+{
+  "name": "postq",
+  "version": "0.0.1",
+  "description": "Job queue with API interface, database backend, and choice of job executors.",
+  "url": "https://github.com/kruxia/postq",
+  "author": "Sean Harrison",
+  "author_email": "sah@kruxia.com",
+  "license": "MPL 2.0",
+  "classifiers": [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+    "Programming Language :: Python :: 3"
+  ],
+  "entry_points": {},
+  "extras_require": {
+    "dev": [],
+    "test": []
+  },
+  "package_data": {
+    "": []
+  },
+  "package_dir": {"app": "app"},
+  "data_files": [],
+  "scripts": []
+}
