@@ -6,7 +6,7 @@ import networkx as nx
 from pydantic import BaseModel, Field, validator
 from sqlalchemy import text
 
-from . import fields, tables
+from . import enums, tables
 
 
 class Model(BaseModel):
@@ -86,7 +86,7 @@ class Job(Model):
     retries: int = Field(default=1)
     queued: datetime = Field(default=None)
     scheduled: datetime = Field(default=None)
-    status: str = Field(default=fields.JobStatus.queued.name)
+    status: str = Field(default=enums.JobStatus.queued.name)
     workflow: Workflow = Field(default_factory=Workflow)
     data: dict = Field(default_factory=dict)
 
@@ -95,9 +95,9 @@ class Job(Model):
 
     @validator('status')
     def validate_job_status(cls, val, values, **kwargs):
-        if val not in fields.JobStatus.__members__.keys():
+        if val not in enums.JobStatus.__members__.keys():
             raise ValueError(
-                f'value must be one of {list(fields.JobStatus.__members__.keys())}'
+                f'value must be one of {list(enums.JobStatus.__members__.keys())}'
             )
         return val
 
@@ -149,9 +149,9 @@ class JobLog(Model):
 
     @validator('status')
     def validate_job_status(cls, val, values, **kwargs):
-        if val not in fields.JobStatus.__members__.keys():
+        if val not in enums.JobStatus.__members__.keys():
             raise ValueError(
-                f'value must be one of {list(fields.JobStatus.__members__.keys())}'
+                f'value must be one of {list(enums.JobStatus.__members__.keys())}'
             )
         return val
 
