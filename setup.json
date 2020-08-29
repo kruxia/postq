@@ -20,7 +20,7 @@
   "package_data": {
     "": []
   },
-  "package_dir": {"app": "app"},
+  "package_dir": {"postq": "postq"},
   "data_files": [],
   "scripts": []
 }

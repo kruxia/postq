@@ -17,8 +17,6 @@ if __name__ == '__main__':
     setup(
         long_description=README,
         long_description_content_type='text/markdown',
-        # install_requires=req_from_file(os.path.join(PATH, 'requirements.txt')),
-        # packages=find_packages(where='src'),
         include_package_data=True,
         **CONFIG
     )
