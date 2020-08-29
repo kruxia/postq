@@ -19,13 +19,11 @@ class Task(Model):
     A single task in a Job workflow
 
     * name = the unique name of this task in this workflow
-    * executor = the module:name of a supported executor for this task
     * depends = the other tasks (names) that must be completed before this task
     * params = other parameters, such as executor-specific parameters
     """
 
     name: str
-    executor: str
     depends: List[str] = Field(default_factory=list)
     params: dict = Field(default_factory=dict)
 
