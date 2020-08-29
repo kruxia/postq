@@ -1,0 +1,4 @@
+alembic==1.4.2
+databases[postgresql]==0.3.2
+pydantic==1.6.1
+networkx==2.5
