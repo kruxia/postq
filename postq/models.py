@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import Any, List
-from uuid import UUID
+from typing import Any, Dict, List
+from uuid import UUID, uuid4
 
 import networkx as nx
 from pydantic import BaseModel, Field, validator
@@ -26,6 +26,9 @@ class Task(Model):
     name: str
     depends: List[str] = Field(default_factory=list)
     params: dict = Field(default_factory=dict)
+    status: str = Field(default=enums.Status.initialized.name)
+    results: dict = Field(default_factory=dict)
+    errors: dict = Field(default_factory=dict)
 
 
 class Workflow(Model):
@@ -34,13 +37,19 @@ class Workflow(Model):
     dependencies. The resulting workflow must form a directed acyclic graph -- i.e.,
     there cannot be a dependency loop.
 
-    * tasks - the tasks that are included in the workflow
-    * graph - the DAG (directed acyclic graph) of tasks (a networkx.DiGraph), which is
-      generated from the tasks dependencies and validated as acyclic
+    * tasks - the tasks that are included in the workflow. key = name, value = Task
+    * graph - (generated from tasks) the DAG (directed acyclic graph) of tasks (a
+      networkx.DiGraph), which is validated as acyclic
     """
 
     tasks: List[Task] = Field(default_factory=list)
     graph: Any = Field(default_factory=nx.DiGraph)
+
+    def dict(self, *args, **kwargs):
+        # don't include graph in output, because it's not serializable, and it's built from tasks
+        return {
+            k: v for k, v in super().dict(*args, **kwargs).items() if k not in ['graph']
+        }
 
     @validator('tasks')
     def validate_tasks(cls, value, values, **kwargs):
@@ -71,9 +80,88 @@ class Workflow(Model):
                 graph.add_edge(depend_name, task.name)
         if not nx.is_directed_acyclic_graph(graph):
             raise ValueError(
-                'The tasks graph must be acyclic but contains one or more cycles.'
+                'The tasks graph must be acyclic, but it currently includes cycles.'
             )
-        return graph
+        # the transitive reduction ensures the shortest version of the workflow.
+        return nx.transitive_reduction(graph)
+
+    @property
+    def tasks_dict(self):
+        return {task.name: task for task in self.tasks}
+
+    @property
+    def predecessors(self):
+        """
+        graph predecessors, with the keys in lexicographical topological sort order.
+        """
+        return {
+            name: list(self.graph.pred[name].keys())
+            for name in nx.lexicographical_topological_sort(self.graph)
+        }
+
+    @property
+    def tasks_predecessors(self):
+        return {
+            task.name: [self.tasks_dict[name] for name in self.predecessors[task.name]]
+            for task in self.tasks
+        }
+
+    @property
+    def tasks_descendants(self):
+        return {
+            task.name: [
+                self.tasks_dict[name] for name in nx.descendants(self.graph, task.name)
+            ]
+            for task in self.tasks
+        }
+
+    @property
+    def completed_tasks(self):
+        return list(
+            filter(
+                lambda task: (
+                    enums.Status[task.status].value >= enums.Status.completed.value
+                ),
+                self.tasks,
+            )
+        )
+
+    @property
+    def failed_tasks(self):
+        return list(
+            filter(
+                lambda task: (
+                    enums.Status[task.status].value >= enums.Status.cancelled.value
+                ),
+                self.tasks,
+            )
+        )
+
+    @property
+    def ready_tasks(self):
+        return list(
+            filter(
+                lambda task: (
+                    # the task is not complete
+                    enums.Status[task.status].value < enums.Status.completed.value
+                    # all the task's predecessors are completed
+                    and all(
+                        map(
+                            lambda task: task in self.completed_tasks,
+                            self.tasks_predecessors[task.name],
+                        )
+                    )
+                    # none of the task's predecessors are failed
+                    and all(
+                        map(
+                            lambda task: task not in self.failed_tasks,
+                            self.tasks_predecessors[task.name],
+                        )
+                    )
+                ),
+                self.tasks,
+            )
+        )
 
 
 class Job(Model):
@@ -81,23 +169,20 @@ class Job(Model):
     A single job in the Job queue.
     """
 
-    id: UUID = Field(default=None)
+    id: UUID = Field(default_factory=uuid4)
     qname: str
     retries: int = Field(default=1)
+    status: str = Field(default=enums.Status.queued.name)
     queued: datetime = Field(default=None)
     scheduled: datetime = Field(default=None)
-    status: str = Field(default=enums.JobStatus.queued.name)
     workflow: Workflow = Field(default_factory=Workflow)
     data: dict = Field(default_factory=dict)
 
-    class Config:
-        orm_mode = True
-
     @validator('status')
     def validate_job_status(cls, val, values, **kwargs):
-        if val not in enums.JobStatus.__members__.keys():
+        if val not in enums.Status.__members__.keys():
             raise ValueError(
-                f'value must be one of {list(enums.JobStatus.__members__.keys())}'
+                f'value must be one of {list(enums.Status.__members__.keys())}'
             )
         return val
 
@@ -136,25 +221,17 @@ class JobLog(Model):
     id: UUID
     qname: str
     retries: int
-    queued: datetime
-    scheduled: datetime
     status: str
-    tasks: dict
-    data: dict
+    queued: datetime = Field(default=None)
+    scheduled: datetime = Field(default=None)
     logged: datetime = Field(default=None)
-    errors: dict = Field(default_factory=dict)
-
-    class Config:
-        orm_mode = True
+    workflow: Workflow
+    data: dict
 
     @validator('status')
     def validate_job_status(cls, val, values, **kwargs):
-        if val not in enums.JobStatus.__members__.keys():
+        if val not in enums.Status.__members__.keys():
             raise ValueError(
-                f'value must be one of {list(enums.JobStatus.__members__.keys())}'
+                f'value must be one of {list(enums.Status.__members__.keys())}'
             )
         return val
-
-
-class Queue(Model):
-    qname: str = Field(default=None)

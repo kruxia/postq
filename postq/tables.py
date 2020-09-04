@@ -44,7 +44,7 @@ JobLog = Table(
         nullable=False,
         server_default=text('current_timestamp'),
     ),
-    Column('status', String, nullable=False, default=enums.JobStatus.queued.name),
+    Column('status', String, nullable=False, default=enums.Status.queued.name),
     Column('workflow', JSONB, server_default=text("'{}'::jsonb")),
     Column('data', JSONB, server_default=text("'{}'::jsonb")),
     Column('errors', JSONB, server_default=text("'{}'::jsonb")),
