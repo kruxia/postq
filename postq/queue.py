@@ -1,3 +1,14 @@
+import asyncio
+import json
+from multiprocessing import Process
+
+import zmq
+from databases import Database
+
+from . import tables
+from .enums import Status
+from .models import Job, JobLog, Task
+
 MAX_WAIT_TIME = 30
 
 
@@ -34,13 +45,13 @@ async def process_job(qname: str, number: str, job: Job) -> JobLog:
         # do all the ready tasks (ancestors are completed and not failed)
         for task in job.workflow.ready_tasks:
             # start an executor process for each task. give it the address to send a
-            # message. copy the task definition!
+            # message. (send the task definition as a copy via `.dict()`)
             process = Process(target=task_executor, args=(address, task.dict()))
-            await process.start()
+            process.start()
             task.status = Status.processing.name
 
         # wait for any task to complete. (all tasks send a message to the task_sink. the
-        # task_result is the task definition itself).
+        # task_result is the task definition itself as a `.dict()`).
         result = await task_sink.recv()
         result_task = Task(**json.loads(result))
 

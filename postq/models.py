@@ -1,12 +1,11 @@
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, List
 from uuid import UUID, uuid4
 
 import networkx as nx
 from pydantic import BaseModel, Field, validator
-from sqlalchemy import text
 
-from . import enums, tables
+from . import enums
 
 
 class Model(BaseModel):
@@ -217,32 +216,6 @@ class Job(Model):
                 f'value must be one of {list(enums.Status.__members__.keys())}'
             )
         return val
-
-    # queries
-    @classmethod
-    def put(cls):
-        return tables.Job.insert().returning(*tables.Job.columns)
-
-    @classmethod
-    def get(cls):
-        return text(
-            """
-            UPDATE postq.job job1 SET retries = retries - 1
-            WHERE job1.id = ( 
-                SELECT job2.id FROM postq.job job2 
-                WHERE job2.qname=:qname
-                AND job2.retries > 0
-                AND job2.scheduled <= now()
-                ORDER BY job2.queued
-                FOR UPDATE SKIP LOCKED LIMIT 1 
-            )
-            RETURNING job1.*;
-            """.strip()
-        )
-
-    @classmethod
-    def delete(cls):
-        return tables.Job.delete()
 
 
 class JobLog(Model):
