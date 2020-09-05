@@ -49,10 +49,10 @@ async def process_job(qname: str, number: int, job: Job) -> JobLog:
         # do all the ready tasks (ancestors are completed and not failed)
         for task in job.workflow.ready_tasks:
             log.debug('[%s] %s ready = %r', address, task.name, task)
-            # start an executor process for each task. give it the address to send a
+            # start an executor thread for each task. give it the address to send a
             # message. (send the task definition as a copy via `.dict()`)
-            process = Thread(target=subprocess_executor, args=(address, task.dict()))
-            process.start()
+            thread = Thread(target=subprocess_executor, args=(address, task.dict()))
+            thread.start()
             task.status = Status.processing.name
 
         # wait for any task to complete. (all tasks send a message to the task_sink. the
@@ -102,5 +102,5 @@ def subprocess_executor(address, task_def):
     task_sender = context.socket(zmq.PUSH)
     task_sender.connect(address)
 
-    # send a message to the task_sink with the results
+    # send a message to the task_sink with the task results
     task_sender.send(task.json().encode())
