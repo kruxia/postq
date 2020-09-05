@@ -12,6 +12,9 @@ class Model(BaseModel):
     def dict(self, exclude_none=True, **kwargs):
         return super().dict(exclude_none=exclude_none, **kwargs)
 
+    def update(self, **kwargs):
+        self.__dict__.update(**kwargs)
+
 
 class Task(Model):
     """
@@ -132,6 +135,19 @@ class Workflow(Model):
         }
 
     @property
+    def started_tasks(self):
+        """
+        Started tasks are those with a Status value greater than or equal to
+        Status.processing
+        """
+        return list(
+            filter(
+                lambda task: (enums.Status[task.status] >= enums.Status.processing),
+                self.tasks,
+            )
+        )
+
+    @property
     def completed_tasks(self):
         """
         Completed tasks are those with a Status value greater than or equal to
@@ -174,15 +190,15 @@ class Workflow(Model):
     @property
     def ready_tasks(self):
         """
-        Ready tasks are those that are not completed, and for which all ancestors are
+        Ready tasks are those that are not started, and for which all ancestors are
         successful.
         """
-        completed = self.completed_tasks
+        started = self.started_tasks
         successful = self.successful_tasks
         return list(
             filter(
                 lambda task: (
-                    task not in completed
+                    task not in started
                     and all(
                         map(
                             lambda task: task in successful,
