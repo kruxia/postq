@@ -1,6 +1,7 @@
-from datetime import datetime
+import json
+from datetime import datetime, timezone
 from typing import Any, List
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import networkx as nx
 from pydantic import BaseModel, Field, validator
@@ -78,6 +79,7 @@ class Workflow(Model):
         """
         graph = nx.DiGraph()
         for task in values.get('tasks') or []:
+            graph.add_node(task.name)  # make sure every task is added
             for depend_name in task.depends:
                 graph.add_edge(depend_name, task.name)
         if not nx.is_directed_acyclic_graph(graph):
@@ -216,13 +218,13 @@ class Job(Model):
     A single job in the Job queue.
     """
 
-    id: UUID = Field(default_factory=uuid4)
+    id: UUID = Field(default=None)
     qname: str
     retries: int = Field(default=1)
     status: str = Field(default=enums.Status.queued.name)
     queued: datetime = Field(default=None)
     scheduled: datetime = Field(default=None)
-    workflow: Workflow = Field(default_factory=Workflow)
+    workflow: Workflow = Field(default_factory=dict)
     data: dict = Field(default_factory=dict)
 
     @validator('status')
@@ -231,6 +233,18 @@ class Job(Model):
             raise ValueError(
                 f'value must be one of {list(enums.Status.__members__.keys())}'
             )
+        return val
+
+    @validator('workflow', pre=True)
+    def convert_job_workflow(cls, val, values, **kwargs):
+        if isinstance(val, str):
+            val = json.loads(val)
+        return val
+
+    @validator('data', pre=True)
+    def convert_job_data(cls, val, values, **kwargs):
+        if isinstance(val, str):
+            val = json.loads(val)
         return val
 
 
@@ -245,14 +259,27 @@ class JobLog(Model):
     status: str
     queued: datetime = Field(default=None)
     scheduled: datetime = Field(default=None)
+    initialized: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     logged: datetime = Field(default=None)
     workflow: Workflow
     data: dict
 
     @validator('status')
-    def validate_job_status(cls, val, values, **kwargs):
+    def validate_joblog_status(cls, val, values, **kwargs):
         if val not in enums.Status.__members__.keys():
             raise ValueError(
                 f'value must be one of {list(enums.Status.__members__.keys())}'
             )
+        return val
+
+    @validator('workflow', pre=True)
+    def convert_joblog_workflow(cls, val, values, **kwargs):
+        if isinstance(val, str):
+            val = json.loads(val)
+        return val
+
+    @validator('data', pre=True)
+    def convert_joblog_data(cls, val, values, **kwargs):
+        if isinstance(val, str):
+            val = json.loads(val)
         return val

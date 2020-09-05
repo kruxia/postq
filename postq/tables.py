@@ -29,12 +29,12 @@ Job = Table(
     Column('data', JSONB, server_default=text("'{}'::jsonb")),
 )
 
-Job.get = lambda: text(
-    """
+Job.get = (
+    lambda: """
     UPDATE postq.job job1 SET retries = retries - 1
     WHERE job1.id = ( 
         SELECT job2.id FROM postq.job job2 
-        WHERE job2.qname=:qname
+        WHERE job2.qname = :qname
         AND job2.retries > 0
         AND job2.scheduled <= now()
         ORDER BY job2.queued
@@ -48,11 +48,12 @@ Job.get = lambda: text(
 JobLog = Table(
     'job_log',
     metadata,
-    Column('id', UUID),
+    Column('id', UUID, nullable=False),
     Column('qname', String, nullable=False),
     Column('retries', SmallInteger),
     Column('queued', DateTime(timezone=True), nullable=False),
     Column('scheduled', DateTime(timezone=True), nullable=False),
+    Column('initialized', DateTime(timezone=True), nullable=True),
     Column(
         'logged',
         DateTime(timezone=True),
@@ -62,5 +63,4 @@ JobLog = Table(
     Column('status', String, nullable=False, default=enums.Status.queued.name),
     Column('workflow', JSONB, server_default=text("'{}'::jsonb")),
     Column('data', JSONB, server_default=text("'{}'::jsonb")),
-    Column('errors', JSONB, server_default=text("'{}'::jsonb")),
 )

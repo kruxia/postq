@@ -1,8 +1,8 @@
-"""job
+"""job_log
 
-Revision ID: f8904d2e6dc9
+Revision ID: b76f56db845a
 Revises: 7e8956a72cf2
-Create Date: 2020-08-23 15:09:41.038772+00:00
+Create Date: 2020-09-05 19:48:20.702598+00:00
 
 """
 import sqlalchemy as sa
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = 'f8904d2e6dc9'
+revision = 'b76f56db845a'
 down_revision = '7e8956a72cf2'
 branch_labels = None
 depends_on = None
@@ -70,11 +70,12 @@ def upgrade():
     )
     op.create_table(
         'job_log',
-        sa.Column('id', postgresql.UUID(), nullable=True),
+        sa.Column('id', postgresql.UUID(), nullable=False),
         sa.Column('qname', sa.String(), nullable=False),
         sa.Column('retries', sa.SmallInteger(), nullable=True),
         sa.Column('queued', sa.DateTime(timezone=True), nullable=False),
         sa.Column('scheduled', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('initialized', sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             'logged',
             sa.DateTime(timezone=True),
@@ -90,12 +91,6 @@ def upgrade():
         ),
         sa.Column(
             'data',
-            postgresql.JSONB(astext_type=sa.Text()),
-            server_default=sa.text("'{}'::jsonb"),
-            nullable=True,
-        ),
-        sa.Column(
-            'errors',
             postgresql.JSONB(astext_type=sa.Text()),
             server_default=sa.text("'{}'::jsonb"),
             nullable=True,

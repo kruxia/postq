@@ -8,33 +8,48 @@ import zmq
 import zmq.asyncio
 from databases import Database
 
-from . import tables
-from .enums import Status
-from .models import Job, JobLog, Task
+from postq import tables
+from postq.enums import Status
+from postq.models import Job, JobLog, Task
 
 log = logging.getLogger(__name__)
-MAX_WAIT_TIME = 30
 
 
-async def listen_queue(database: Database, qname: str, number: int):
+async def manage_queue(dsn: str, qname: str, listeners: int, max_wait: int = 30):
+    database = Database(dsn, min_size=listeners, max_size=listeners)
+    await database.connect()
+    await asyncio.gather(
+        *[
+            listen_queue(database, qname, number, max_wait)
+            for number in range(listeners)
+        ]
+    )
+
+
+async def listen_queue(database: Database, qname: str, number: int, max_wait: int = 30):
     wait_time = 1
     while True:
         # in a single database transaction...
         async with database.transaction():
             # poll the Q for available jobs
             if record := await database.fetch_one(
-                query=tables.Job.get(), values={'qname': qname}
+                tables.Job.get(), values={'qname': qname}
             ):
                 job = Job(**record)
+                log.debug("[%s %02d] job = %r", qname, number, job)
                 joblog = await process_job(qname, number, job)
                 await database.execute(
                     query=tables.JobLog.insert(), values=joblog.dict()
                 )
-                await database.execute(query=tables.Job.delete(), values=job.dict())
+                await database.execute(
+                    'delete from postq.job where id=:id', values={'id': job.id}
+                )
+                # reset the wait time since there are active jobs
                 wait_time = 1
 
+        log.debug("[%s %02d] sleep = %d sec...", qname, number, wait_time)
         await asyncio.sleep(wait_time)
-        wait_time = min(round(wait_time * 1.618), MAX_WAIT_TIME)
+        wait_time = min(round(wait_time * 1.618), max_wait)
 
 
 async def process_job(qname: str, number: int, job: Job) -> JobLog:
@@ -44,8 +59,10 @@ async def process_job(qname: str, number: int, job: Job) -> JobLog:
     task_sink = context.socket(zmq.PULL)
     task_sink.bind(address)
 
+    joblog = JobLog(**job.dict())
+
     # loop until all the tasks are finished (either completed or failed)
-    while min(*[Status[task.status] for task in job.workflow.tasks]) < Status.completed:
+    while min([Status[task.status] for task in job.workflow.tasks]) < Status.completed:
         # do all the ready tasks (ancestors are completed and not failed)
         for task in job.workflow.ready_tasks:
             log.debug('[%s] %s ready = %r', address, task.name, task)
@@ -73,10 +90,9 @@ async def process_job(qname: str, number: int, job: Job) -> JobLog:
 
     # all the tasks have now either succeeded, failed, or been cancelled. The Job status
     # is the maximum (worst) status of any task.
-    job.status = list(Status.__members__.values())[
-        max([Status[task.status] for task in job.workflow.tasks])
-    ]
-    return JobLog(**job.dict())
+    job.status = max([Status[task.status] for task in job.workflow.tasks]).name
+    joblog.update(**job.dict())
+    return joblog
 
 
 def subprocess_executor(address, task_def):
@@ -84,13 +100,14 @@ def subprocess_executor(address, task_def):
 
     # execute the task and gather the results and any errors into the task
     task.status = task.params.get('status') or 'completed'
+    cmd = task.params.get('command')
     if cmd:
         process = subprocess.run(cmd, shell=True, capture_output=True)
         task.results = process.stdout
         task.errors = process.stderr
         if process.returncode > 0:
             task.status = Status.error.name
-        elif tasks.errors:
+        elif task.errors:
             task.status = Status.warning.name
         else:
             task.status = Status.success.name
