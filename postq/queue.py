@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import subprocess
 from threading import Thread
 
 import zmq
@@ -47,18 +48,18 @@ async def process_job(qname: str, number: int, job: Job) -> JobLog:
     while min(*[Status[task.status] for task in job.workflow.tasks]) < Status.completed:
         # do all the ready tasks (ancestors are completed and not failed)
         for task in job.workflow.ready_tasks:
-            log.debug('[%s] ready_task = %r', address, task)
+            log.debug('[%s] %s ready = %r', address, task.name, task)
             # start an executor process for each task. give it the address to send a
             # message. (send the task definition as a copy via `.dict()`)
-            process = Thread(target=task_executor, args=(address, task.dict()))
+            process = Thread(target=subprocess_executor, args=(address, task.dict()))
             process.start()
             task.status = Status.processing.name
 
         # wait for any task to complete. (all tasks send a message to the task_sink. the
         # task_result is the task definition itself as a `.dict()`).
         result = await task_sink.recv()
-        log.debug("result = %r", result)
         result_task = Task(**json.loads(result))
+        log.debug("[%s] %s result = %r", address, task.name, result_task)
 
         # when a task completes, update the task definition with its status and errors.
         task = job.workflow.tasks_dict[result_task.name]
@@ -67,6 +68,7 @@ async def process_job(qname: str, number: int, job: Job) -> JobLog:
         # if it failed, mark all descendants as cancelled
         if Status[task.status] >= Status.cancelled:
             for descendant_task in job.workflow.tasks_descendants[task.name]:
+                log.debug("[%s] %s cancel = %r", address, task.name, descendant_task)
                 descendant_task.status = Status.cancelled.name
 
     # all the tasks have now either succeeded, failed, or been cancelled. The Job status
@@ -77,14 +79,23 @@ async def process_job(qname: str, number: int, job: Job) -> JobLog:
     return JobLog(**job.dict())
 
 
-def task_executor(address, task_def):
+def subprocess_executor(address, task_def):
     task = Task(**task_def)
-    log.debug('[%s] executor task = %r', address, task)
 
-    # execute the task
-
-    # gather the results and any errors into the task
+    # execute the task and gather the results and any errors into the task
     task.status = task.params.get('status') or 'completed'
+    if cmd:
+        process = subprocess.run(cmd, shell=True, capture_output=True)
+        task.results = process.stdout
+        task.errors = process.stderr
+        if process.returncode > 0:
+            task.status = Status.error.name
+        elif tasks.errors:
+            task.status = Status.warning.name
+        else:
+            task.status = Status.success.name
+    else:
+        task.status = Status.completed.name
 
     # connect to PUSH socket (NOT asyncio, this isn't a coroutine)
     context = zmq.Context.instance()

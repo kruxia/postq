@@ -29,8 +29,8 @@ class Task(Model):
     depends: List[str] = Field(default_factory=list)
     params: dict = Field(default_factory=dict)
     status: str = Field(default=enums.Status.initialized.name)
-    results: dict = Field(default_factory=dict)
-    errors: dict = Field(default_factory=dict)
+    results: str = Field(default_factory=str)
+    errors: str = Field(default_factory=str)
 
 
 class Workflow(Model):
