@@ -15,7 +15,15 @@ from postq.models import Job, JobLog, Task
 log = logging.getLogger(__name__)
 
 
-async def manage_queue(dsn: str, qname: str, listeners: int, max_wait: int = 30):
+async def manage_queue(dsn: str, qname: str, listeners: int = 1, max_wait: int = 30):
+    """
+    start listeners that will listen to the queue.
+
+    * dsn = database url
+    * qname = name of the queue to listen to
+    * listeners = number of listeners to launch in coroutines
+    * max_wait = the maximum sleep time for a given listener
+    """
     database = Database(dsn, min_size=listeners, max_size=listeners)
     await database.connect()
     await asyncio.gather(
@@ -27,6 +35,10 @@ async def manage_queue(dsn: str, qname: str, listeners: int, max_wait: int = 30)
 
 
 async def listen_queue(database: Database, qname: str, number: int, max_wait: int = 30):
+    """
+    poll the 'qname' queue for jobs, processing each one in order. when there are no
+    jobs, wait for an increasing number of seconds up to max_wait.
+    """
     wait_time = 1
     while True:
         # in a single database transaction...
@@ -53,6 +65,13 @@ async def listen_queue(database: Database, qname: str, number: int, max_wait: in
 
 
 async def process_job(qname: str, number: int, job: Job) -> JobLog:
+    """
+    process the given Job and return a JobLog with the results. 
+
+    Each job workflow consists of a DAG (directed acyclic graph) of tasks. While there
+    are incomplete tasks, launch any ready tasks and wait for a task to complete. When a
+    task completes, log its results. When all tasks have completed, return the results.
+    """
     # bind PULL socket (task sink)
     address = f"ipc://postq-{qname}-{number:02d}.ipc"
     context = zmq.asyncio.Context.instance()
@@ -66,6 +85,7 @@ async def process_job(qname: str, number: int, job: Job) -> JobLog:
         # do all the ready tasks (ancestors are completed and not failed)
         for task in job.workflow.ready_tasks:
             log.debug('[%s] %s ready = %r', address, task.name, task)
+
             # start an executor thread for each task. give it the address to send a
             # message. (send the task definition as a copy via `.dict()`)
             thread = Thread(target=subprocess_executor, args=(address, task.dict()))
