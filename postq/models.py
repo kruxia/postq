@@ -119,9 +119,7 @@ class Workflow(Model):
     def completed_tasks(self):
         return list(
             filter(
-                lambda task: (
-                    enums.Status[task.status].value >= enums.Status.completed.value
-                ),
+                lambda task: (enums.Status[task.status] >= enums.Status.completed),
                 self.tasks,
             )
         )
@@ -130,9 +128,7 @@ class Workflow(Model):
     def failed_tasks(self):
         return list(
             filter(
-                lambda task: (
-                    enums.Status[task.status].value >= enums.Status.cancelled.value
-                ),
+                lambda task: (enums.Status[task.status] >= enums.Status.cancelled),
                 self.tasks,
             )
         )
@@ -143,7 +139,7 @@ class Workflow(Model):
             filter(
                 lambda task: (
                     # the task is not complete
-                    enums.Status[task.status].value < enums.Status.completed.value
+                    enums.Status[task.status] < enums.Status.completed
                     # all the task's predecessors are completed
                     and all(
                         map(

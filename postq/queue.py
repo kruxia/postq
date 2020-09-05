@@ -30,17 +30,12 @@ async def process_job(qname: str, number: str, job: Job) -> JobLog:
     task_sink.bind(address)
 
     # loop until all the tasks are finished (either completed or failed)
-    while (
-        min(*[Status[task.status].value for task in job.workflow])
-        < Status.completed.value
-    ):
+    while min(*[Status[task.status] for task in job.workflow]) < Status.completed:
         # do all the ready tasks (predecessors are completed and not failed)
         for task in job.workflow.ready_tasks:
             # start an executor process for each task. give it the address to send a
             # message. copy the task definition!
-            process = Process(
-                target=task_executor, args=(address, task.dict())
-            )
+            process = Process(target=task_executor, args=(address, task.dict()))
             await process.start()
             task.status = Status.processing.name
 
@@ -54,15 +49,14 @@ async def process_job(qname: str, number: str, job: Job) -> JobLog:
         task.update(**result_task.dict())
 
         # if it failed, mark all descendants as cancelled
-        if Status[task.status].value >= Status.cancelled.value:
+        if Status[task.status] >= Status.cancelled:
             for descendant_task in job.workflow.tasks_descendants[task.name]:
-                descendant_task.status = Status.cancelled.value
+                descendant_task.status = Status.cancelled
 
     # all the tasks have now either succeeded, failed, or been cancelled. The Job status
-    # is the maximum (worst) status of any task. (TODO: This would be a lot easier if we
-    # added some comparison operators to the Status enum!)
+    # is the maximum (worst) status of any task.
     job.status = list(Status.__members__.values())[
-        max([Status[task.status].value for task in job.workflow.tasks])
+        max([Status[task.status] for task in job.workflow.tasks])
     ]
     return JobLog(**job.dict())
 
@@ -78,6 +72,6 @@ def task_executor(address, task_def):
     context = zmq.Context.instance()
     task_sender = context.socket(zmq.PUSH)
     task_sender.connect(address)
-    
+
     # send a message to the task_sink with the results
     task_sender.send(task.json().encode())

@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import IntEnum
 
 
-class Status(Enum):
+class Status(IntEnum):
     # status values are such that the status of a set of tasks is the max status of all
     # the individual tasks. So if one task had an error, the whole has an error status.
     initialized = 0
@@ -16,3 +16,6 @@ class Status(Enum):
     cancelled = 7
     failure = 8
     error = 9
+
+    def __str__(self):
+        return self.name
