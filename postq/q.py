@@ -69,8 +69,10 @@ async def process_job(qname: str, number: int, job: Job) -> JobLog:
     process the given Job and return a JobLog with the results. 
 
     Each job workflow consists of a DAG (directed acyclic graph) of tasks. While there
-    are incomplete tasks, launch any ready tasks and wait for a task to complete. When a
-    task completes, log its results. When all tasks have completed, return the results.
+    are incomplete tasks, launch any ready tasks in threads and wait for a task to
+    complete. When a task completes, log its results, then re-check for ready tasks
+    (those whose ancestors have completed successfully) and launch them. When all tasks
+    have completed, return the results.
     """
     # bind PULL socket (task sink)
     address = f"ipc://postq-{qname}-{number:02d}.ipc"
