@@ -1,6 +1,6 @@
 {
   "name": "postq",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Job queue with API interface, database backend, and choice of job executors.",
   "url": "https://github.com/kruxia/postq",
   "author": "Sean Harrison",
