@@ -90,6 +90,23 @@ class Workflow(Model):
         return {task.name: task for task in self.tasks}
 
     @property
+    def ancestors(self):
+        """
+        graph ancestors, with the keys in lexicographical topological sort order.
+        """
+        return {
+            name: list(nx.ancestors(self.graph, name))
+            for name in nx.lexicographical_topological_sort(self.graph)
+        }
+
+    @property
+    def tasks_ancestors(self):
+        return {
+            task.name: [self.tasks_dict[name] for name in self.ancestors[task.name]]
+            for task in self.tasks
+        }
+
+    @property
     def predecessors(self):
         """
         graph predecessors, with the keys in lexicographical topological sort order.
@@ -117,6 +134,10 @@ class Workflow(Model):
 
     @property
     def completed_tasks(self):
+        """
+        Completed tasks are those with a Status value greater than or equal to
+        Status.completed
+        """
         return list(
             filter(
                 lambda task: (enums.Status[task.status] >= enums.Status.completed),
@@ -126,6 +147,10 @@ class Workflow(Model):
 
     @property
     def failed_tasks(self):
+        """
+        Failed tasks are those with a Status value greater than or equal to
+        Status.cancelled
+        """
         return list(
             filter(
                 lambda task: (enums.Status[task.status] >= enums.Status.cancelled),
@@ -134,24 +159,35 @@ class Workflow(Model):
         )
 
     @property
+    def successful_tasks(self):
+        """
+        Successful tasks are those that have completed and not failed.
+        """
+        completed = self.completed_tasks
+        failed = self.failed_tasks
+        return list(
+            filter(
+                lambda task: (task in completed and task not in failed),
+                self.tasks,
+            )
+        )
+
+    @property
     def ready_tasks(self):
+        """
+        Ready tasks are those that are not completed, and for which all ancestors are
+        successful.
+        """
+        completed = self.completed_tasks
+        successful = self.successful_tasks
         return list(
             filter(
                 lambda task: (
-                    # the task is not complete
-                    enums.Status[task.status] < enums.Status.completed
-                    # all the task's predecessors are completed
+                    task not in completed
                     and all(
                         map(
-                            lambda task: task in self.completed_tasks,
-                            self.tasks_predecessors[task.name],
-                        )
-                    )
-                    # none of the task's predecessors are failed
-                    and all(
-                        map(
-                            lambda task: task not in self.failed_tasks,
-                            self.tasks_predecessors[task.name],
+                            lambda task: task in successful,
+                            self.tasks_ancestors[task.name],
                         )
                     )
                 ),

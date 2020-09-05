@@ -31,7 +31,7 @@ async def process_job(qname: str, number: str, job: Job) -> JobLog:
 
     # loop until all the tasks are finished (either completed or failed)
     while min(*[Status[task.status] for task in job.workflow]) < Status.completed:
-        # do all the ready tasks (predecessors are completed and not failed)
+        # do all the ready tasks (ancestors are completed and not failed)
         for task in job.workflow.ready_tasks:
             # start an executor process for each task. give it the address to send a
             # message. copy the task definition!
@@ -39,12 +39,12 @@ async def process_job(qname: str, number: str, job: Job) -> JobLog:
             await process.start()
             task.status = Status.processing.name
 
-        # wait for any task to complete -- any task (the task_result is the task
-        # definition itself).
+        # wait for any task to complete. (all tasks send a message to the task_sink. the
+        # task_result is the task definition itself).
         result = await task_sink.recv()
         result_task = Task(**json.loads(result))
 
-        # when a task completes, log its status and errors.
+        # when a task completes, update the task definition with its status and errors.
         task = job.workflow.tasks_dict[task.name]
         task.update(**result_task.dict())
 
