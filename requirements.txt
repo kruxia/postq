@@ -6,6 +6,7 @@
 #
 alembic==1.4.2            # via -r req/install.txt
 asyncpg==0.21.0           # via databases
+click==7.1.2              # via -r req/install.txt
 databases[postgresql]==0.3.2  # via -r req/install.txt
 decorator==4.4.2          # via networkx
 mako==1.1.3               # via alembic
