@@ -36,7 +36,7 @@ For the work I am doing, I need a job queue system with the following features:
         * output: logs, jobfiles
         * jobfiles: volume mounts
         * status: as given by `kubectl describe`
-    * [TODO] **process** = e.g., bash script for the Task. 
+    * **shell** = e.g., bash script for the Task. 
         * management: launch and await the completion of the process. [NOTE: The process executor is very much like the docker executor defined above, but it doesn't involve spinning up a new docker container.]
         * input: STDIN, ENV, jobfiles
         * output: STDOUT and STDERR, jobfiles
@@ -61,11 +61,11 @@ Given the Workflow DAG for the Job, the general Execution algorithm can be:
     * Log the Task as complete with status
     * Recurse to step 2.
 
-Implementing this algorithm requires multiprocessing with message passing. Super interesting!
-
 * The Manager thread/actor initiates each Task thread/actor.
 * Each Task thread/actor runs the Task, waits for the results, then sends a message to the Manager indicating the completion, status, and output of this Task.
 * The Manager waits for messages from the Tasks and re-runs the (step 2) launch algorithm after receiving each message.
+
+Implementing this algorithm requires multiprocessing or threading with message passing. Super interesting! (We are using asyncio and threading rather than multiprocessing because the performance is significantly higher, approximately 100x faster, and queue manager and task executors are all I/O-bound rather than CPU-bound. The Tasks, which are run as subprocesses inside the task executor threads, are CPU-bound, but since they aren't in the main queue application process, the queue application itself is I/O bound.)
 
 ### Message Passing Multiprocessing with ZeroMQ
 
