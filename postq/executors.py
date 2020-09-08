@@ -1,6 +1,5 @@
 import logging
 import subprocess
-from pathlib import Path
 from typing import Dict
 
 import zmq
@@ -11,7 +10,7 @@ from postq.models import Task
 log = logging.getLogger(__name__)
 
 
-def shell_executor(address: str, jobdir: str, task_def: Dict):
+def shell_executor(address: str, jobdir: str, task_def: Dict) -> None:
     """
     Execute the given Task definition in its own subprocess shell, and send a message to
     the given address with the results when the subprocess has completed.
@@ -51,7 +50,7 @@ def shell_executor(address: str, jobdir: str, task_def: Dict):
     task_sender.send(task.json().encode())
 
 
-def docker_executor(address: str, jobdir: str, task_def: Dict):
+def docker_executor(address: str, jobdir: str, task_def: Dict) -> None:
     """
     Execute the given Task definition in a docker container subprocess, and send a
     message to the given address with the results when the subprocess has completed.
@@ -68,11 +67,13 @@ def docker_executor(address: str, jobdir: str, task_def: Dict):
 
         image = task.params['image']
         command = task.params['command']
-        env = ' '.join([f'-e {key}="{val}"' for key, val in task.params.get('env') or {}])
+        env = ' '.join(
+            [f'-e {key}="{val}"' for key, val in task.params.get('env') or {}]
+        )
         vol = f'-v {jobdir}:/jobdir'
-        cwd = f"-w /jobdir"
+        cwd = '-w /jobdir'
 
-        cmd = f"docker run -t {env} {vol} {cwd} {image} {command}"
+        cmd = f'docker run -t {env} {vol} {cwd} {image} {command}'
         log.debug(cmd)
 
         # execute the task and gather the results and any errors into the task
