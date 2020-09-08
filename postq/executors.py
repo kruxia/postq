@@ -41,13 +41,7 @@ def shell_executor(address: str, jobdir: str, task_def: Dict) -> None:
         task.status = Status.error.name
         task.errors = f"{type(exc).__name__}: {str(exc)}"
 
-    # connect to PUSH socket (NOT zmq.asyncio, since this isn't a coroutine)
-    context = zmq.Context.instance()
-    task_sender = context.socket(zmq.PUSH)
-    task_sender.connect(address)
-
-    # send a message to the task_sink with the task results
-    task_sender.send(task.json().encode())
+    send_task(address, task)
 
 
 def docker_executor(address: str, jobdir: str, task_def: Dict) -> None:
@@ -91,6 +85,13 @@ def docker_executor(address: str, jobdir: str, task_def: Dict) -> None:
         task.status = Status.error.name
         task.errors = f"{type(exc).__name__}: {str(exc)}"
 
+    send_task(address, task)
+
+
+def send_task(address: str, task: Task):
+    """
+    Send (PUSH) task to zmq socket address.
+    """
     # connect to PUSH socket (NOT zmq.asyncio, since this isn't a coroutine)
     context = zmq.Context.instance()
     task_sender = context.socket(zmq.PUSH)
