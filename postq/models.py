@@ -111,23 +111,6 @@ class Workflow(Model):
         }
 
     @property
-    def predecessors(self):
-        """
-        graph predecessors, with the keys in lexicographical topological sort order.
-        """
-        return {
-            name: list(self.graph.pred[name].keys())
-            for name in nx.lexicographical_topological_sort(self.graph)
-        }
-
-    @property
-    def tasks_predecessors(self):
-        return {
-            task.name: [self.tasks_dict[name] for name in self.predecessors[task.name]]
-            for task in self.tasks
-        }
-
-    @property
     def tasks_descendants(self):
         return {
             task.name: [

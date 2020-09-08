@@ -54,8 +54,8 @@ For the work I am doing, I need a job queue system with the following features:
 
 Given the Workflow DAG for the Job, the general Execution algorithm can be:
 
-1. Load the DAG and calculate the predecessors for each Task
-2. For all Tasks that have no incomplete or failed predecessors,
+1. Load the DAG and calculate the ancestors for each Task
+2. For all Tasks that have no incomplete or failed ancestors,
     * Start the Task [async subprocess]
 3. As each Task completes,
     * Log the Task as complete with status
