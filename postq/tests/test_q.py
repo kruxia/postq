@@ -47,7 +47,9 @@ async def test_process_job_task_result_status():
     ]
 
     for item in data:
-        job = Job(id=uuid4(), qname=qname, workflow={'tasks': item['tasks']})
+        job = Job(
+            id=uuid4(), status='queued', qname=qname, workflow={'tasks': item['tasks']}
+        )
         joblog = await q.process_job(qname, number, job, mock_executor)
         joblog.workflow = Workflow(**joblog.workflow)
         for task in joblog.workflow.tasks:
