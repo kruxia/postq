@@ -16,18 +16,19 @@ EXECUTORS = {
     'docker': executors.docker_executor,
     'shell': executors.shell_executor,
 }
+DATABASE_DSN = os.getenv('POSTQ_DATABASE_DSN')
 
 
 @click.command()
-@click.option('-d', '--dsn', default=os.getenv('POSTQ_DATABASE_DSN'))
-@click.option('-q', '--qname', default='')
-@click.option('-n', '--listeners', default=1)
-@click.option('-l', '--level', default=logging.INFO)
-@click.option('-w', '--max-wait', default=30)
-@click.option('-e', '--executor', default='shell')
-def main(dsn, qname, listeners, level, max_wait, executor):
+@click.option('-d', '--dsn', default=DATABASE_DSN, help="Database DSN")
+@click.option('-q', '--qname', default='', help='Name of the queue to listen to')
+@click.option('-n', '--listeners', default=1, help='Number of parallel listers')
+@click.option('-l', '--level', default=logging.INFO, help='Logging level')
+@click.option('-s', '--max-sleep', default=30, help='Maximum seconds to sleep')
+@click.option('-e', '--executor', default='shell', help='Executor function')
+def main(dsn, qname, listeners, level, max_sleep, executor):
     logging.basicConfig(level=level)
-    asyncio.run(q.manage_queue(dsn, qname, listeners, max_wait, EXECUTORS[executor]))
+    asyncio.run(q.manage_queue(dsn, qname, listeners, max_sleep, EXECUTORS[executor]))
 
 
 if __name__ == '__main__':

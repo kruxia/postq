@@ -10,4 +10,4 @@ def mock_executor(address, jobdir, task_def):
     """
     task = models.Task(**task_def)
     task.status = task.params.get('status') or enums.Status.completed.name
-    executors.send_task(address, task)
+    executors.send_data(address, task.dict())

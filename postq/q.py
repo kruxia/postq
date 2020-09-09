@@ -21,7 +21,7 @@ async def manage_queue(
     dsn: str,
     qname: str,
     listeners: int = 1,
-    max_wait: int = 30,
+    max_sleep: int = 30,
     executor: Callable[[str, dict, str], None] = None,
 ):
     """
@@ -30,7 +30,7 @@ async def manage_queue(
     * dsn = database url
     * qname = name of the queue to listen to
     * listeners = number of listeners to launch in coroutines
-    * max_wait = the maximum sleep time for a given listener
+    * max_sleep = the maximum sleep time for a given listener
 
     Each listener runs in a separate coroutine. A listener only runs one job at a time.
     Listeners and job processors are I/O-bound, but the parallelized task processors
@@ -42,7 +42,7 @@ async def manage_queue(
     await database.connect()
     await asyncio.gather(
         *[
-            listen_queue(database, qname, number, max_wait, executor)
+            listen_queue(database, qname, number, max_sleep, executor)
             for number in range(listeners)
         ]
     )
@@ -52,12 +52,12 @@ async def listen_queue(
     database: Database,
     qname: str,
     number: int,
-    max_wait: int = 30,
+    max_sleep: int = 30,
     executor: Callable[[str, dict, str], None] = None,
 ):
     """
     Poll the 'qname' queue for jobs, processing each one in order. When there are no
-    jobs, wait for an increasing number of seconds up to max_wait.
+    jobs, wait for an increasing number of seconds up to max_sleep.
     """
     wait_time = 1
     while True:
@@ -81,7 +81,7 @@ async def listen_queue(
 
         log.debug("[%s %02d] sleep = %d sec...", qname, number, wait_time)
         await asyncio.sleep(wait_time)
-        wait_time = min(round(wait_time * 1.618), max_wait)
+        wait_time = min(round(wait_time * 1.618), max_sleep)
 
 
 async def process_job(
@@ -121,9 +121,7 @@ async def process_job(
 
     # bind PULL socket (task sink)
     address = f"ipc://postq-{qname}-{number:02d}.ipc"
-    context = zmq.asyncio.Context.instance()
-    task_sink = context.socket(zmq.PULL)
-    task_sink.bind(address)
+    task_sink = bind_pull_socket(address)
 
     joblog = JobLog(**job.dict())
 
@@ -178,3 +176,10 @@ async def process_job(
     )
 
     return joblog
+
+
+def bind_pull_socket(address: str) -> zmq.Socket:
+    context = zmq.asyncio.Context.instance()
+    socket = context.socket(zmq.PULL)
+    socket.bind(address)
+    return socket
