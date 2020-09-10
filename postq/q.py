@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import tempfile
 from pathlib import Path
 from threading import Thread
@@ -117,7 +118,8 @@ async def process_job(
     )
 
     # bind PULL socket (task sink)
-    address = f"ipc://postq-{qname}-{number:02d}.ipc"
+    socket_file = Path(os.getenv('TMPDIR', '')) / f'.postq-{qname}-{number:02d}.ipc'
+    address = f"ipc://{socket_file}"
     task_sink = bind_pull_socket(address)
 
     joblog = JobLog(**job.dict())
