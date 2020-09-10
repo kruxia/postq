@@ -33,5 +33,4 @@ RUN pip install --no-cache-dir -r req/dev.txt
 COPY ./ ./
 RUN pip install --no-cache-dir -e .
 
-ENTRYPOINT ["./docker-entrypoint.sh"]
-CMD ["python", "-m", "postq"]
+ENTRYPOINT ["./docker-entrypoint.sh", "python", "-m", "postq"]
