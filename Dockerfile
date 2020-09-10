@@ -34,4 +34,4 @@ COPY ./ ./
 RUN pip install --no-cache-dir -e .
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
-CMD ["python", "-m", "postq", "-q", "$POSTQ_QNAME"]
+CMD ["python", "-m", "postq"]

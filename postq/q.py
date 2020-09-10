@@ -62,27 +62,29 @@ async def listen_queue(
     """
     wait_time = 1
     while True:
-        # in a single database transaction...
-        async with database.transaction():
-            # poll the Q for available jobs
-            if record := await database.fetch_one(
-                tables.Job.get(), values={'qname': qname}
-            ):
-                job = Job(**record)
-                log.debug("[%s %02d] job = %r", qname, number, job)
-                joblog = await process_job(qname, number, job, executor)
-                await database.execute(
-                    query=tables.JobLog.insert(), values=joblog.dict()
-                )
-                await database.execute(
-                    'delete from postq.job where id=:id', values={'id': job.id}
-                )
-                # reset the wait time since there are active jobs
-                wait_time = 1
-
+        result = await transact_one_job(database, qname, number, executor)
+        wait_time = 1 if result else min(round(wait_time * 1.618), max_sleep)
         log.debug("[%s %02d] sleep = %d sec...", qname, number, wait_time)
         await asyncio.sleep(wait_time)
-        wait_time = min(round(wait_time * 1.618), max_sleep)
+
+
+async def transact_one_job(database, qname, number, executor):
+    # in a single database transaction...
+    async with database.transaction():
+        # poll the Q for available jobs
+        if record := await database.fetch_one(
+            tables.Job.get(), values={'qname': qname}
+        ):
+            job = Job(**record)
+            log.debug("[%s %02d] job = %r", qname, number, job)
+            joblog = await process_job(qname, number, job, executor)
+            await database.execute(
+                query=tables.JobLog.insert(), values=joblog.dict()
+            )
+            await database.execute(
+                'delete from postq.job where id=:id', values={'id': job.id}
+            )
+            return True
 
 
 async def process_job(

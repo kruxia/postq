@@ -202,7 +202,7 @@ class Job(Model):
     """
 
     id: UUID = Field(default=None)
-    qname: str
+    qname: str = Field(default='')
     retries: int = Field(default=1)
     status: str = Field(default=enums.Status.queued.name)
     queued: datetime = Field(default=None)

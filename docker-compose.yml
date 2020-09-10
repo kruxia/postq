@@ -28,8 +28,6 @@ services:
       POSTGRES_USER: postq
       POSTGRES_PASSWORD: postq
 
-      POSTQ_QNAME: q
- 
       TMPDIR: /tmp/
 
 volumes: 
