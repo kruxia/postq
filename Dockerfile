@@ -1,12 +1,13 @@
-# postq Job Worker for the docker Executor
-FROM debian:buster-slim
+# postq for docker
+FROM python:3.8-slim-buster
 LABEL maintainer="Sean Harrison <sah@kruxia.com>"
 
 WORKDIR /app
 
-# install Docker (without the docker daemon?)
+# install system requirements -- psql, docker (without the docker daemon?)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        postgresql-client \
         apt-transport-https \
         ca-certificates \
         curl \
@@ -26,16 +27,11 @@ RUN apt-get update \
         # containerd.io \
     && rm -rf /var/lib/apt/lists/*
 
-# install postq
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        python3 \
-        python3-pip \
-        postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY ./requirements.txt ./requirements.txt
-RUN pip3 install --no-cache-dir -r requirements.txt
+COPY req/ req/
+RUN pip install --no-cache-dir -r req/dev.txt
 
 COPY ./ ./
-RUN pip3 install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e .
+
+ENTRYPOINT ["./docker-entrypoint.sh"]
+CMD ["python", "-m", "postq", "-q", "$POSTQ_QNAME"]

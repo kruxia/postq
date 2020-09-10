@@ -37,7 +37,7 @@ async def test_shell_executor():
     ]
 
     for item in data:
-        executor(address, jobdir, item['task'])
+        executor(address, jobdir, {**item['task']})
         result = await task_sink.recv_json()
         for key in item['result']:
             assert result[key] == item['result'][key]
@@ -93,7 +93,7 @@ async def test_docker_executor():
     ]
 
     for item in data:
-        executor(address, jobdir, item['task'])
+        executor(address, jobdir, {**item['task']})
         result = await task_sink.recv_json()
         for key in item['result']:
             assert result[key] == item['result'][key]

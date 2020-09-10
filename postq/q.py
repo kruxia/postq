@@ -10,7 +10,7 @@ import zmq
 import zmq.asyncio
 from databases import Database
 
-from postq import executors, tables
+from postq import tables
 from postq.enums import Status
 from postq.models import Job, JobLog, Task
 
@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 
 async def manage_queue(
-    dsn: str,
+    database_url: str,
     qname: str,
     listeners: int = 1,
     max_sleep: int = 30,
@@ -27,7 +27,7 @@ async def manage_queue(
     """
     Start listeners that will listen to the queue.
 
-    * dsn = database url
+    * database_url = database connection url
     * qname = name of the queue to listen to
     * listeners = number of listeners to launch in coroutines
     * max_sleep = the maximum sleep time for a given listener
@@ -38,7 +38,7 @@ async def manage_queue(
     they will each poll the database separately, and they will each launch one job at a
     time with parallelized tasks.
     """
-    database = Database(dsn, min_size=listeners, max_size=listeners)
+    database = Database(database_url, min_size=listeners, max_size=listeners)
     await database.connect()
     await asyncio.gather(
         *[
@@ -88,7 +88,7 @@ async def process_job(
     qname: str,
     number: int,
     job: Job,
-    executor: Callable[[str, dict, str], None] = None,
+    executor: Callable[[str, dict, str], None],
 ) -> JobLog:
     """
     Process the given Job and return a JobLog with the results.
@@ -115,9 +115,6 @@ async def process_job(
     log.info(
         "[%s %02d] processing Job: %s [queued=%s]", qname, number, job.id, job.queued
     )
-
-    if executor is None:
-        executor = executors.shell_executor
 
     # bind PULL socket (task sink)
     address = f"ipc://postq-{qname}-{number:02d}.ipc"

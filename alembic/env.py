@@ -37,7 +37,7 @@ def run_migrations_offline():
     Calls to context.execute() here emit the given string to the
     script output.
     """
-    url = os.environ['SQLALCHEMY_URL']
+    url = os.environ['DATABASE_URL']
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -55,7 +55,7 @@ def run_migrations_online():
     In this scenario we need to create an Engine
     and associate a connection with the context.
     """
-    connectable = create_engine(os.environ['SQLALCHEMY_URL'])
+    connectable = create_engine(os.environ['DATABASE_URL'])
 
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
