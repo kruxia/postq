@@ -50,7 +50,9 @@ PostQ is a job queue system with
     The default docker-compose.yml cluster definition uses the docker executor (so tasks must define an image) with a maximum queue sleep time of 5 seconds and the default qname=''. Note that the default cluster doesn't expose any ports to the outside world, but you can for example shell into the running cluster (using a second terminal) and start pushing tasks into the queue. Or, the more common case is that your PostgreSQL instance is available inside your application cluster, so you can push jobs into postq directly from your application. 
     
     Here is an example in Python using [Databases](https://encode.io/databases), [SQL Alchemy Core](https://docs.sqlalchemy.org/en/13/core/), and data models written in [Pydantic](https://pydantic-docs.helpmanual.io/):
-
+    ```bash
+    $ docker-compose exec postq ipython
+    ```
     ```python
     # (Using the ipython shell, which allows async/await without an explicit event loop.)
     import os
