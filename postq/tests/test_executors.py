@@ -11,7 +11,7 @@ async def test_shell_executor():
     """
     live-test the shell_executor
     """
-    socket_file = Path(os.getenv('TMPDIR', '')) / f'.postq-test.ipc'
+    socket_file = Path(os.getenv('TMPDIR', '')) / '.postq-test.ipc'
     address = f'ipc://{socket_file}'
     task_sink = q.bind_pull_socket(address)
     executor = executors.shell_executor
@@ -54,7 +54,7 @@ async def test_docker_executor():
     live-test the docker_executor. NOTE: Running commands in a docker container takes
     time as compared with the shell. So we limit the number of docker commands we test.
     """
-    socket_file = Path(os.getenv('TMPDIR', '')) / f'.postq-test.ipc'
+    socket_file = Path(os.getenv('TMPDIR', '')) / '.postq-test.ipc'
     address = f'ipc://{socket_file}'
     task_sink = q.bind_pull_socket(address)
     executor = executors.docker_executor

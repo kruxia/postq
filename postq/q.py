@@ -78,9 +78,7 @@ async def transact_one_job(database, qname, number, executor):
             job = Job(**record)
             log.debug("[%s %02d] job = %r", qname, number, job)
             joblog = await process_job(qname, number, job, executor)
-            await database.execute(
-                query=tables.JobLog.insert(), values=joblog.dict()
-            )
+            await database.execute(query=tables.JobLog.insert(), values=joblog.dict())
             await database.execute(
                 'delete from postq.job where id=:id', values={'id': job.id}
             )
