@@ -91,8 +91,11 @@ PostQ is a job queue system with
     ```
     Now you have a job log entry with the output of your command in the task results. :tada:
 
-    Similar results can be achieved with SQL directly, or with any other interface. Here's the same example run in the `psql` terminal (`docker-compose exec postq bash` to shell into the postq container, then `psql $DATABASE_URL` to shell into the database from there):
-
+    Similar results can be achieved with SQL directly, or with any other interface. Here's the same example run in the `psql` terminal inside the running cluster: 
+    ```bash
+    $ docker-compose exec postq bash
+    $ psql $DATABASE_URL
+    ```
     ```sql
     postq=# insert into postq.job (qname, status, workflow) values ('', 'queued', '{"tasks": [{"name": "a", "params": {"image": "debian:buster-slim", "command": "ls -laFh"}}]}') returning id;
     -[ RECORD 1 ]----------------------------
