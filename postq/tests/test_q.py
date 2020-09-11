@@ -48,6 +48,10 @@ from postq.tests.mocks import mock_executor
     ],
 )
 async def test_process_job_task_result_status(item):
+    """
+    For each item, process the job and verify that the result status of each task and
+    the job as a whole is as expected.
+    """
     qname, number = 'test', 1
     job = Job(
         id=uuid4(), status='queued', qname=qname, workflow={'tasks': item['tasks']}

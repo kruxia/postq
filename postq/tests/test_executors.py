@@ -51,8 +51,12 @@ async def test_shell_executor():
 @pytest.mark.asyncio
 async def test_docker_executor():
     """
-    live-test the docker_executor. NOTE: Running commands in a docker container takes
-    time as compared with the shell. So we limit the number of docker commands we test.
+    Live-test the docker_executor. 
+
+    (NOTE: Running commands in a docker container takes time as compared with the shell.
+    So the number of docker commands we test is limited.)
+
+    (NOTE: This test isn't parametrized because of the overhead of the socket setup.)
     """
     socket_file = Path(os.getenv('TMPDIR', '')) / '.postq-test.ipc'
     address = f'ipc://{socket_file}'
@@ -69,7 +73,7 @@ async def test_docker_executor():
             'task': {'name': 'a', 'params': {'command': 'ls'}},
             'result': {'status': 'error'},
         },
-        # Task with cmd that works
+        # Task with cmd that works (stdout, no stderr, no exit failure code)
         {
             'task': {
                 'name': 'a',
@@ -77,7 +81,7 @@ async def test_docker_executor():
             },
             'result': {'status': 'success'},
         },
-        # Task with cmd that errors
+        # Task with cmd that errors (exit 1 creates an error condition)
         {
             'task': {
                 'name': 'a',
@@ -85,7 +89,7 @@ async def test_docker_executor():
             },
             'result': {'status': 'error'},
         },
-        # Task with cmd that warns
+        # Task with cmd that warns (stderr creates a warning condition)
         {
             'task': {
                 'name': 'a',
