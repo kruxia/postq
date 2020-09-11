@@ -23,8 +23,8 @@ async def test_shell_executor():
         {'task': {'name': 'a'}, 'result': {'status': 'error'}},
         # Task with cmd that works
         {
-            'task': {'name': 'a', 'params': {'command': 'ls'}},
-            'result': {'status': 'success'},
+            'task': {'name': 'a', 'params': {'command': 'echo hi'}},
+            'result': {'status': 'success', 'results': 'hi\n'},
         },
         # Task with cmd that errors
         {
@@ -77,9 +77,9 @@ async def test_docker_executor():
         {
             'task': {
                 'name': 'a',
-                'params': {'command': 'ls', 'image': 'debian:buster-slim'},
+                'params': {'command': 'echo hi', 'image': 'debian:buster-slim'},
             },
-            'result': {'status': 'success'},
+            'result': {'status': 'success', 'results': 'hi\r\n'},
         },
         # Task with cmd that errors (exit 1 creates an error condition)
         {
