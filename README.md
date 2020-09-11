@@ -51,7 +51,7 @@ PostQ is a job queue system with
     
     [**TODO**: _Move examples out of the features summary_]
 
-    Here is an example in Python using [Databases](https://encode.io/databases), [SQL Alchemy Core](https://docs.sqlalchemy.org/en/13/core/), and data models written ttps://pydantic-docs.helpmanual.io/):
+    Here is an example in Python using [Databases](https://encode.io/databases), [SQL Alchemy Core](https://docs.sqlalchemy.org/en/13/core/), and data models written in [Pydantic](https://pydantic-docs.helpmanual.io/):
 
     ```python
     # (Using the ipython shell, which allows async/await without an explicit event loop.)
@@ -93,7 +93,27 @@ PostQ is a job queue system with
     ```
     Now you have a job log entry with the output of your command in the task results. :tada:
 
-    Similar results can be achieved with SQL directly, or with any other interface.
+    Similar results can be achieved with SQL directly, or with any other interface. Here's the same example run in the `psql` terminal (`docker-compose exec postq bash` to shell into the postq container, then `psql $DATABASE_URL` to shell into the database from there):
+
+    ```sql
+    postq=# insert into postq.job (qname, status, workflow) values ('', 'queued', '{"tasks": [{"name": "a", "params": {"image": "debian:buster-slim", "command": "ls -laFh"}}]}') returning id;
+    -[ RECORD 1 ]----------------------------
+    id | 17d0a67c-98fb-4f84-913e-2f0532bc069f
+
+    INSERT 0 1
+    postq=# select * from postq.job_log where id = '17d0a67c-98fb-4f84-913e-2f0532bc069f';
+    -[ RECORD 1 ]---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    id          | 17d0a67c-98fb-4f84-913e-2f0532bc069f
+    qname       | 
+    retries     | 0
+    queued      | 2020-09-11 04:48:53.897556+00
+    scheduled   | 2020-09-11 04:48:53.897556+00
+    initialized | 2020-09-11 04:48:54.40734+00
+    logged      | 2020-09-11 04:48:54.400779+00
+    status      | success
+    workflow    | {"tasks": [{"name": "a", "errors": "", "params": {"image": "debian:buster-slim", "command": "ls -laFh"}, "status": "success", "depends": [], "results": "total 4.0K\r\ndrwxr-xr-x 2 root root   64 Sep 11 04:48 ./\r\ndrwxr-xr-x 1 root root 4.0K Sep 11 04:48 ../\r\n"}]}
+    data        | {}
+    ```
 
 <!-- * [TODO] **Can use a message broker as the Job Queue.** Applications that need higher performance and throughput than PostgreSQL can provide must be able to shift up to something more performant. For example, RabbitMQ is a very high-performance message broker written in Erlang.
 
