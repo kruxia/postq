@@ -16,6 +16,7 @@ services:
     build:
       context: ./
       dockerfile: ./Dockerfile
+    command: ['-s', '5', '-e', 'docker'] # sleep max 5 sec., use docker executor, default qname=''
     volumes:
       - .:/app
       - /var/run/docker.sock:/var/run/docker.sock

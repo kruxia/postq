@@ -1,83 +1,101 @@
-## postq = cloud-native job queue system
+# PostQ = Cloud-Native Job Queue and DAG Workflow System
 
-Job queue system with API interface, database backend, and choice of {process, docker, kubernetes} job executors.
+PostQ is a job queue system with 
 
-For the work I am doing, I need a job queue system with the following features:
+* workflows that are directed acyclic graphs, with tasks that depend on other tasks
+* parallel task execution
+* shared files among tasks
+* a PostgreSQL database backend
+* choice of {shell, docker, [coming soon: kubernetes]} task executors
+* easy on-ramp for developers: `git pull https://github.com/kruxia/postq; cd postq; docker-compose up` and you're running PostQ
 
-* **Uses a PostgreSQL database as the (default) Job Queue.** Postgres provides persistence and ACID transaction guarantees. It is the simplest way to ensure that a job is not lost. It is also already running in most application clusters, so building on Postgres enables developers to easily add a Job Queue to their application without substantially increasing the necessary complexity of their application.
+## Features 
 
-* **Defines Job Workflows as a DAG of Tasks.** Most existing job queue systems (e.g., Celery) define jobs as single tasks, so it's up to the user to define more complex workflows. But many workflows (like CI/CD pipelines and data applications) need to be able to define workflows at a higher level as a DAG of tasks, in which a given task might depend on earlier tasks that must first be completed, and which might be run in parallel with other tasks in the workflow.
+* **A PostQ Job Workflow is a DAG (Directed Acyclic Graph) of Tasks.** 
 
-* **Runs each Task in a (temporary) container using an image.** Many existing task queue systems assume that the programming environment in which the queue worker is written is available for the execution of each task. For example, Celery tasks are written and run in python. Instead, we need to be able to run tasks that have any environment that can be defined and built in a container image. This enables a task to use any software, not just the software that is available in the queue worker.
+    Many existing job queue systems define jobs as single tasks, so it's up to the user to define more complex workflows. But many workflows (like CI/CD pipelines, and data applications) need to be able to define workflows at a higher level as a DAG of tasks, in which a given task might depend on earlier tasks that must first be completed, and which might be run in parallel with other tasks in the workflow.
 
-* [TODO] **Can use a message broker as the Job Queue.** Applications that need higher performance and throughput than PostgreSQL can provide must be able to shift up to something more performant. For example, RabbitMQ is a very high-performance message broker written in Erlang.
+    PostQ defines Job workflows as a DAG of tasks. For each named task, you list the other tasks that must be completed first, and PostQ will work out (using snazzy graph calculations) the simplest and most direct version of the workflow (i.e., the _transitive reduction_ of the graph). It runs the tasks in the order indicated by the graph of their dependencies, and finishes when all tasks have been either completed or cancelled due to a preceding failure.
 
-* [TODO] **Can run (persistent) Task workers.** Some Tasks or Task environments (images) are anticipated as being needed continually. In such job environments, the Task workers can be made persistent services that listen to the Job queue for their own Jobs. (In essence, this allows a Task to be a complete sub-workflow being handled by its own Workflow Job queue workers, in which the Tasks are enabled to run inside the Job worker container as subprocesses.)
+* **Workflow Tasks Are Executed in Parallel.**
 
-### Architecture:
+    When a PostQ Job is started, it begins by launching all the tasks that don't depend on other tasks. Then, as each task finishes, it launches all additional tasks for which the predecessors have been successfully completed. 
+    
+    At any given time, there might be many tasks in a Job running at the same time on different processors. <!-- (and soon, using Kubernetes, on different machines). --> The more you break down your workflows into tasks that can happen in parallel, the more CPUs your tasks can utilize, and the more quickly your jobs can be completed, limited only by the available resources.
 
-* **Workflow** = A (JSON/YAML) list of Task definitions that defines a DAG of Tasks.
-* **Tasks** = processes that take input and produce output. 
-* **Task definitions** are objects that include:
-    * name = the name of the Task, must be unique in this Workflow (raise an error if not unique)
-    * depends = a list of Task names that this Task depends on having completed before it begins.
-    * params = values that are needed to run the task, such as the image name, any environment variables that must be set in that image, and any volume mounts that must be done.
-* **Job Worker** = a persistent process that listens to the Job queue, loads Jobs, and executes their Workflows. The Job Worker only knows about the Workflow and its Tasks -- nothing about the business.
-* **Job files** = storage that all Tasks in a Job can share. Possible backends include filesystem/volume, S3/minio, and Azure Blob Storage.
-* **Executors** = ways of running ~~Tasks~~Workflows. Each Job worker is defined to run with a particular Executor, based on the environment in which it is running. (Workflows don't know anything about the Executor(s) that will be running them.)
-    * **docker** = run the Task via `docker run` (must have a docker daemon running and be able to use it). 
-        * input: STDIN, ENV, jobfiles
-        * output: STDOUT, STDERR, jobfiles
-        * jobfiles: filesystem volume mount
-        * status: docker run return code
-    * **kube** = spin up a kubernetes Job for the Task (must have access to cluster, kubectl installed).
-        * management: create the Job definition, apply it to the cluster, and then periodically query the job status (via `kubectl describe`?) until it has completed
-        * input: ConfigMap / Secret, jobfiles
-        * output: logs, jobfiles
-        * jobfiles: volume mounts
-        * status: as given by `kubectl describe`
-    * **shell** = e.g., bash script for the Task. 
-        * management: launch and await the completion of the process. [NOTE: The process executor is very much like the docker executor defined above, but it doesn't involve spinning up a new docker container.]
-        * input: STDIN, ENV, jobfiles
-        * output: STDOUT and STDERR, jobfiles
-        * jobfiles: filesystem
-        * status: process return code
-    * [TODO] **api** = send the Task to an API endpoint.
-        * input: POST JSON request body
-        * output: GET JSON response body
-        * jobfiles: PUT request / GET response bodies
-            * input jobfiles before the POST JSON
-            * output jobfiles after the GET JSON
-        * status: with output
+* **Tasks in a Job Workflow Can Share Files.**
 
-### Workflow Execution Algorithm
+    For workflows that process large amounts of data that is stored in files, it's important to be able to share these files among all the tasks in a workflow. PostQ creates shared temporary file storage for each job, and each task is run with that directory as the current working directory. 
+    
+    So, for example, you can start your workflow with a task that pulls files from permanent storage, then other tasks can process the data in those files, create other files, etc. Then, at the end of the work, the files that need to be saved as artifacts of the job can be pushed to permanent storage. 
 
-Given the Workflow DAG for the Job, the general Execution algorithm can be:
+* **A PostgreSQL Database Is the (Default) Job Queue.** 
 
-1. Load the DAG and calculate the ancestors for each Task
-2. For all Tasks that have no incomplete or failed ancestors,
-    * Start the Task [async subprocess]
-3. As each Task completes,
-    * Log the Task as complete with status
-    * Recurse to step 2.
+    PostgreSQL provides persistence and ACID transaction guarantees. It is the simplest way to ensure that a job is not lost, but is processed exactly once. PostgreSQL is also already running in many web and microservice application clusters, so building on Postgres enables developers to easily add a Job Queue to their application without substantially increasing the necessary complexity of their application. PostgreSQL combines excellent speed with fantastic reliability, durability, and transactional guarantees. 
 
-* The Manager thread/actor initiates each Task thread/actor.
-* Each Task thread/actor runs the Task, waits for the results, then sends a message to the Manager indicating the completion, status, and output of this Task.
-* The Manager waits for messages from the Tasks and re-runs the (step 2) launch algorithm after receiving each message.
+* **The Docker [and coming soon Kubernetes] Executor Runs each Task in a Container Using any Image.** 
 
-Implementing this algorithm requires multiprocessing or threading with message passing. Super interesting! (We are using asyncio and threading rather than multiprocessing because the performance is significantly higher, approximately 100x faster, and queue manager and task executors are all I/O-bound rather than CPU-bound. The Tasks, which are run as subprocesses inside the task executor threads, are CPU-bound, but since they aren't in the main queue application process, the queue application itself is I/O bound.)
+    Many existing task queue systems assume that the programming environment in which the queue worker is written is available for the execution of each task. For example, Celery tasks are written and run in python. 
+    
+    Instead, PostQ has the ability to run tasks in separate containers. This enables a task to use any software, not just the software that is available in the queue worker system.
 
-### Message Passing Multiprocessing with ZeroMQ
+    (Author's Note: This was one of the primary motivations for writing PostQ. I am building an application that has workflows with tasks requiring NodeJS, or Java, or Python, or Chromium. It's possible to build an image that includes all of these requirements — and weighs in over a gigabyte! It's much more maintainable to separate the different task programs into different images, with each image including only the software it needs to complete its task.)
 
-(Using ZeroMQ is simpler and more robust than multiprocessing.Queue from the Python standard library.)
+* **Easy On-ramp for Developers.**
+    ```bash
+    git pull https://github.com/kruxia/postq.git
+    cd postq
+    docker-compose up
+    ```
+    The default docker-compose.yml cluster definition uses the docker executor (so tasks must define an image) with a maximum queue sleep time of 5 seconds and the default qname=''. Note that the default cluster doesn't expose any ports to the outside world, but you can for example shell into the running cluster (using a second terminal) and start pushing tasks into the queue. Or, the more common case is that your PostgreSQL instance is available inside your application cluster, so you can push jobs into postq directly from your application. 
+    
+    [**TODO**: _Move examples out of the features summary_]
 
-* QManager spawns QWorker processes (with some limit based on the number of CPUs available)
-* QWorker binds Q socket: `"ipc://[qname][NN].ipc"`
-* QWorker waits for an available Job (polling the Job Q)
-* QWorker runs Job
-    * QWorker spawns available TaskExecutor processes. 
-    * QWorker listens for messages on the Q socket.
-    * TaskExecutor process launches the task, waits for results, then connects on the Q socket and sends a message to the QWorker, exiting after message is delivered.
-    * QWorker receives message, processes it, and spawns next round of available TaskExecutor processes. (Processing the Task message includes updating the Job status and logging any results to storage.)
-    * When no Tasks remain (either all are completed, or something that is required has failed), QWorker logs the Job as complete.
-* QWorker waits for the next available Job.
+    Here is an example in Python using [Databases](https://encode.io/databases), [SQL Alchemy Core](https://docs.sqlalchemy.org/en/13/core/), and data models written ttps://pydantic-docs.helpmanual.io/):
+
+    ```python
+    # (Using the ipython shell, which allows async/await without an explicit event loop.)
+    import os
+    from databases import Database
+    from postq import models, tables
+    
+    database = Database(os.getenv('DATABASE_URL'))
+    await database.connect()
+    job = models.Job(
+        workflow={
+            'tasks': [
+                {
+                    'name': 'a', 
+                    'params': {'image': 'debian:buster-slim', 'command': 'ls -laFh'}
+                }
+            ]
+        }
+    )
+    record = await database.fetch_one(
+        tables.Job.insert().returning(*tables.Job.columns), values=job.dict()
+    )
+    
+    # Then, after a few seconds...
+
+    joblog = models.JobLog(
+        **await database.fetch_one(
+            tables.JobLog.select().where(
+                tables.JobLog.columns.id==record['id']
+            ).limit(1)
+        )
+    )
+
+    print(joblog.workflow.tasks[0].results)
+
+    # total 4.0K
+    # drwxr-xr-x 2 root root   64 Sep 11 04:11 ./
+    # drwxr-xr-x 1 root root 4.0K Sep 11 04:11 ../
+    ```
+    Now you have a job log entry with the output of your command in the task results. :tada:
+
+    Similar results can be achieved with SQL directly, or with any other interface.
+
+<!-- * [TODO] **Can use a message broker as the Job Queue.** Applications that need higher performance and throughput than PostgreSQL can provide must be able to shift up to something more performant. For example, RabbitMQ is a very high-performance message broker written in Erlang.
+
+* [TODO] **Can run (persistent) Task workers.** Some Tasks or Task environments (images) are anticipated as being needed continually. In such job environments, the Task workers can be made persistent services that listen to the Job queue for their own Jobs. (In essence, this allows a Task to be a complete sub-workflow being handled by its own Workflow Job queue workers, in which the Tasks are enabled to run inside the Job worker container as subprocesses.) -->
+
