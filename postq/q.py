@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import tempfile
+from copy import deepcopy
 from pathlib import Path
 from threading import Thread
 from typing import Callable
@@ -13,7 +14,7 @@ from databases import Database
 
 from postq import tables
 from postq.enums import Status
-from postq.models import Job, JobLog, Task
+from postq.models import Job, Task
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ async def process_job(
     number: int,
     job: Job,
     executor: Callable[[str, dict, str], None],
-) -> JobLog:
+) -> Job:
     """
     Process the given Job and return a JobLog with the results.
 
@@ -116,13 +117,12 @@ async def process_job(
     log.info(
         "[%s %02d] processing Job: %s [queued=%s]", qname, number, job.id, job.queued
     )
+    job = deepcopy(job)
 
     # bind PULL socket (task sink)
     socket_file = Path(os.getenv('TMPDIR', '')) / f'.postq-{qname}-{number:02d}.ipc'
     address = f"ipc://{socket_file}"
     task_sink = bind_pull_socket(address)
-
-    joblog = JobLog(**job.dict())
 
     with tempfile.TemporaryDirectory() as jobdir:
         # The jobdir directory will be available to all tasks in the job workflow, to
@@ -134,10 +134,10 @@ async def process_job(
 
         # loop until all the tasks are finished (either completed or failed)
         while (
-            min([Status[task.status] for task in job.workflow.tasks]) < Status.completed
+            min([Status[task.status] for task in job.tasks.values()]) < Status.completed
         ):
             # do all the ready tasks (ancestors are completed and not failed)
-            for task in job.workflow.ready_tasks:
+            for task in job.ready_tasks:
                 log.debug('[%s] %s ready = %r', address, task.name, task)
 
                 # start an executor thread for each task. give it the address to send a
@@ -145,7 +145,7 @@ async def process_job(
                 # the task definition as a copy via `.dict()`)
                 thread = Thread(target=executor, args=(address, jobdir, task.dict()))
                 thread.start()
-                task.status = Status.processing.name
+                task.status = str(Status.processing)
 
             # wait for any task to complete. (all tasks send a message to the task_sink.
             # the task_result is the task definition itself as a `.dict()`).
@@ -154,27 +154,25 @@ async def process_job(
             log.debug("[%s] %s result = %r", address, task.name, result_task)
 
             # when a task completes, update the task definition with its status and errors.
-            task = job.workflow.tasks_dict[result_task.name]
+            task = job.tasks[result_task.name]
             task.update(**result_task.dict())
 
             # if it failed, mark all descendants as cancelled
             if Status[task.status] >= Status.cancelled:
-                for descendant_task in job.workflow.tasks_descendants[task.name]:
+                for descendant_task in job.task_descendants[task.name]:
                     log.debug(
                         "[%s] %s cancel = %r", address, task.name, descendant_task
                     )
-                    descendant_task.status = Status.cancelled.name
+                    descendant_task.status = str(Status.cancelled)
 
     # all the tasks have now either succeeded, failed, or been cancelled. The Job status
     # is the maximum (worst) status of any task.
-    job.status = max([Status[task.status] for task in job.workflow.tasks]).name
-    joblog.update(**job.dict())
+    job.status = str(max([Status[task.status] for task in job.tasks.values()]))
 
     log.info(
         "[%s %02d] completed Job: %s [status=%s]", qname, number, job.id, job.status
     )
-
-    return joblog
+    return job
 
 
 def bind_pull_socket(address: str) -> zmq.Socket:

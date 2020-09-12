@@ -62,14 +62,7 @@ PostQ is a job queue system with
     database = Database(os.getenv('DATABASE_URL'))
     await database.connect()
     job = models.Job(
-        workflow={
-            'tasks': [
-                {
-                    'name': 'a', 
-                    'params': {'image': 'debian:buster-slim', 'command': 'ls -laFh'}
-                }
-            ]
-        }
+        tasks= {'a': {'image': 'debian:buster-slim', 'command': 'ls -laFh'}}
     )
     record = await database.fetch_one(
         tables.Job.insert().returning(*tables.Job.columns), values=job.dict()
@@ -77,7 +70,7 @@ PostQ is a job queue system with
     
     # Then, after a few seconds...
 
-    joblog = models.JobLog(
+    joblog = models.Job(
         **await database.fetch_one(
             tables.JobLog.select().where(
                 tables.JobLog.columns.id==record['id']
@@ -85,7 +78,7 @@ PostQ is a job queue system with
         )
     )
 
-    print(joblog.workflow.tasks[0].results)
+    print(joblog.tasks[0].results)
 
     # total 4.0K
     # drwxr-xr-x 2 root root   64 Sep 11 04:11 ./

@@ -1,12 +1,12 @@
 import json
 from datetime import datetime, timezone
-from typing import Any, List
+from typing import Any, Dict, List
 from uuid import UUID
 
 import networkx as nx
 from pydantic import BaseModel, Field, validator
 
-from . import enums
+from postq.enums import Status
 
 
 class Model(BaseModel):
@@ -26,33 +26,94 @@ class Task(Model):
     * params = other parameters, such as executor-specific parameters
     """
 
+    # fields
     name: str
     depends: List[str] = Field(default_factory=list)
     params: dict = Field(default_factory=dict)
-    status: str = Field(default=enums.Status.initialized.name)
+    status: str = Field(default=str(Status.initialized))
     results: str = Field(default_factory=str)
     errors: str = Field(default_factory=str)
 
 
-class Workflow(Model):
+class Job(Model):
     """
-    A workflow defines what tasks are included in a Job. The tasks define their own
-    dependencies. The resulting workflow must form a directed acyclic graph -- i.e.,
-    there cannot be a dependency loop.
+    A single job in the Job queue and then in the log.
 
-    * tasks - the tasks that are included in the workflow. key = name, value = Task
+    * id - Unique identifier for this job.
+    * qname - Name of the queue that this job is will be in. Different postq workers
+      listen to different queues.
+    * status - the current status of the job, one of the values in postq.Status.
+    * queued - timestamp when the job was queued.
+    * scheduled - timestamp when the job is scheduled (= queued by default).
+    * initialed - timestamp when the job was initialized.
+    * logged - timestamp when the job was logged.
+    * tasks - define the job's workflow. key = name, value = Task. Each task defines its
+      own dependencies, command, and image. The resulting workflow must form a directed
+      acyclic graph -- i.e., there cannot be a dependency loop.
+      * depends - the list of names of the other tasks that this task depends on.
+      * command - the command that the task runs in the image container.
+      * image - {docker, kubernetes} the image that is used to run the task.
     * graph - (generated from tasks) the DAG (directed acyclic graph) of tasks (a
-      networkx.DiGraph), which is validated as acyclic
+      networkx.DiGraph), which is validated as acyclic.
+    * data - extra data that is needed by the job or its tasks to complete the workflow.
     """
 
-    tasks: List[Task] = Field(default_factory=list)
+    # fields
+    id: UUID = Field(default=None)
+    qname: str = Field(default='')
+    status: str = Field(default=str(Status.queued))
+    queued: datetime = Field(default=None)
+    scheduled: datetime = Field(default=None)
+    initialized: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    logged: datetime = Field(default=None)
+    tasks: Dict[str, Task] = Field(default_factory=dict)
     graph: Any = Field(default_factory=nx.DiGraph)
+    data: dict = Field(default_factory=dict)
 
     def dict(self, *args, **kwargs):
-        # don't include graph in output, because it's not serializable, and it's built from tasks
-        return {
-            k: v for k, v in super().dict(*args, **kwargs).items() if k not in ['graph']
+        # don't include graph in output, because it's not serializable, and it's
+        # generated automatically from tasks.
+        data = {
+            key: val
+            for key, val in super().dict(*args, **kwargs).items()
+            if key not in ['graph']
         }
+        # filter 'name' out of tasks
+        data['tasks'] = {
+            name: {key: val for key, val in task.items() if key not in ['name']}
+            for name, task in data['tasks'].items()
+        }
+        return data
+
+    # field converters
+
+    @validator('status')
+    def validate_job_status(cls, value, values, **kwargs):
+        if value not in Status.__members__.keys():
+            raise ValueError(f'value must be one of {list(Status.__members__.keys())}')
+        return value
+
+    @validator('tasks', pre=True)
+    def convert_job_tasks(cls, value, values, **kwargs):
+        # convert a string to a dict
+        if isinstance(value, str):
+            value = json.loads(value)
+        # convert values that are dicts to Task instances
+        return {
+            key: (
+                Task(name=key, **{k: v for k, v in val.items() if k != 'name'})
+                if isinstance(val, dict)
+                else val
+            )
+            for key, val in value.items()
+        }
+
+    @validator('data', pre=True)
+    def convert_job_data(cls, value, values, **kwargs):
+        # convert a string to a dict
+        if isinstance(value, str):
+            value = json.loads(value)
+        return value
 
     @validator('tasks')
     def validate_tasks(cls, value, values, **kwargs):
@@ -60,12 +121,12 @@ class Workflow(Model):
         Ensure that all Task.depends are defined as Tasks.
         """
         errors = []
-        task_names = [task.name for task in value]
-        for task in value:
+        task_names = list(value.keys())
+        for task_name, task in value.items():
             for depend_name in task.depends:
                 if depend_name not in task_names:
                     errors.append(
-                        f"Task '{task.name}' depends on undefined Task '{depend_name}'."
+                        f"Task '{task_name}' depends on undefined Task '{depend_name}'."
                     )
         if errors:
             raise ValueError(' '.join(errors))
@@ -74,14 +135,14 @@ class Workflow(Model):
     @validator('graph', always=True)
     def validate_graph(cls, value, values, **kwargs):
         """
-        Build the Workflow.graph from the Workflow.tasks, and ensure that the graph is
+        Build the job.graph from the job.tasks, and ensure that the graph is
         acyclic (a directed acyclic graph).
         """
         graph = nx.DiGraph()
-        for task in values.get('tasks') or []:
-            graph.add_node(task.name)  # make sure every task is added
+        for task_name, task in (values.get('tasks') or {}).items():
+            graph.add_node(task_name)  # make sure every task is added
             for depend_name in task.depends:
-                graph.add_edge(depend_name, task.name)
+                graph.add_edge(depend_name, task_name)
         if not nx.is_directed_acyclic_graph(graph):
             raise ValueError(
                 'The tasks graph must be acyclic, but it currently includes cycles.'
@@ -89,94 +150,85 @@ class Workflow(Model):
         # the transitive reduction ensures the shortest version of the workflow.
         return nx.transitive_reduction(graph)
 
-    @property
-    def tasks_dict(self):
-        return {task.name: task for task in self.tasks}
+    # ancestors and descendants of a given task
 
     @property
-    def ancestors(self):
+    def task_ancestors(self):
         """
         graph ancestors, with the keys in lexicographical topological sort order.
         """
         return {
-            name: list(nx.ancestors(self.graph, name))
-            for name in nx.lexicographical_topological_sort(self.graph)
-        }
-
-    @property
-    def tasks_ancestors(self):
-        return {
-            task.name: [self.tasks_dict[name] for name in self.ancestors[task.name]]
-            for task in self.tasks
-        }
-
-    @property
-    def tasks_descendants(self):
-        return {
-            task.name: [
-                self.tasks_dict[name] for name in nx.descendants(self.graph, task.name)
+            task_name: [
+                self.tasks[name] for name in nx.ancestors(self.graph, task_name)
             ]
-            for task in self.tasks
+            for task_name in nx.lexicographical_topological_sort(self.graph)
         }
+
+    @property
+    def task_descendants(self):
+        return {
+            task_name: [
+                self.tasks[name] for name in nx.descendants(self.graph, task_name)
+            ]
+            for task_name in self.tasks
+        }
+
+    # lists of tasks with various statuses
 
     @property
     def started_tasks(self):
         """
-        Started tasks are those with a Status value greater than or equal to
-        Status.processing
+        Tasks with a Status value greater than or equal to Status.processing
         """
         return list(
             filter(
-                lambda task: (enums.Status[task.status] >= enums.Status.processing),
-                self.tasks,
+                lambda task: (Status[task.status] >= Status.processing),
+                self.tasks.values(),
             )
         )
 
     @property
     def completed_tasks(self):
         """
-        Completed tasks are those with a Status value greater than or equal to
-        Status.completed
+        Tasks with a Status value greater than or equal to Status.completed
         """
         return list(
             filter(
-                lambda task: (enums.Status[task.status] >= enums.Status.completed),
-                self.tasks,
+                lambda task: (Status[task.status] >= Status.completed),
+                self.tasks.values(),
             )
         )
 
     @property
     def failed_tasks(self):
         """
-        Failed tasks are those with a Status value greater than or equal to
-        Status.cancelled
+        Tasks with a Status value greater than or equal to Status.cancelled
         """
         return list(
             filter(
-                lambda task: (enums.Status[task.status] >= enums.Status.cancelled),
-                self.tasks,
+                lambda task: (Status[task.status] >= Status.cancelled),
+                self.tasks.values(),
             )
         )
 
     @property
     def successful_tasks(self):
         """
-        Successful tasks are those that have completed and not failed.
+        Tasks that have completed and not failed.
         """
         completed = self.completed_tasks
         failed = self.failed_tasks
         return list(
             filter(
                 lambda task: (task in completed and task not in failed),
-                self.tasks,
+                self.tasks.values(),
             )
         )
 
     @property
     def ready_tasks(self):
         """
-        Ready tasks are those that are not started, and for which all ancestors are
-        successful.
+        Tasks that are not started, and for which all ancestors are successful.
         """
         started = self.started_tasks
         successful = self.successful_tasks
@@ -187,82 +239,10 @@ class Workflow(Model):
                     and all(
                         map(
                             lambda task: task in successful,
-                            self.tasks_ancestors[task.name],
+                            self.task_ancestors[task.name],
                         )
                     )
                 ),
-                self.tasks,
+                self.tasks.values(),
             )
         )
-
-
-class Job(Model):
-    """
-    A single job in the Job queue.
-    """
-
-    id: UUID = Field(default=None)
-    qname: str = Field(default='')
-    retries: int = Field(default=1)
-    status: str = Field(default=enums.Status.queued.name)
-    queued: datetime = Field(default=None)
-    scheduled: datetime = Field(default=None)
-    workflow: Workflow = Field(default_factory=dict)
-    data: dict = Field(default_factory=dict)
-
-    @validator('status')
-    def validate_job_status(cls, val, values, **kwargs):
-        if val not in enums.Status.__members__.keys():
-            raise ValueError(
-                f'value must be one of {list(enums.Status.__members__.keys())}'
-            )
-        return val
-
-    @validator('workflow', pre=True)
-    def convert_job_workflow(cls, val, values, **kwargs):
-        if isinstance(val, str):
-            val = json.loads(val)
-        return val
-
-    @validator('data', pre=True)
-    def convert_job_data(cls, val, values, **kwargs):
-        if isinstance(val, str):
-            val = json.loads(val)
-        return val
-
-
-class JobLog(Model):
-    """
-    A logged Job to maintain a historical record of Jobs that have been completed.
-    """
-
-    id: UUID
-    qname: str
-    retries: int
-    status: str
-    queued: datetime = Field(default=None)
-    scheduled: datetime = Field(default=None)
-    initialized: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
-    logged: datetime = Field(default=None)
-    workflow: Workflow
-    data: dict
-
-    @validator('status')
-    def validate_joblog_status(cls, val, values, **kwargs):
-        if val not in enums.Status.__members__.keys():
-            raise ValueError(
-                f'value must be one of {list(enums.Status.__members__.keys())}'
-            )
-        return val
-
-    @validator('workflow', pre=True)
-    def convert_joblog_workflow(cls, val, values, **kwargs):
-        if isinstance(val, str):
-            val = json.loads(val)
-        return val
-
-    @validator('data', pre=True)
-    def convert_joblog_data(cls, val, values, **kwargs):
-        if isinstance(val, str):
-            val = json.loads(val)
-        return val

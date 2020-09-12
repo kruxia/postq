@@ -31,11 +31,11 @@ def executor(
         task.results = process.stdout.decode()  # TODO: I'm not happy with forcing UTF-8
         task.errors = process.stderr.decode()
         if process.returncode > 0:
-            task.status = Status.error.name
+            task.status = str(Status.error)
         elif task.errors:
-            task.status = Status.warning.name
+            task.status = str(Status.warning)
         else:
-            task.status = Status.success.name
+            task.status = str(Status.success)
 
         send_data(address, task.dict())
 

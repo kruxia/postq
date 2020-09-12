@@ -9,5 +9,5 @@ def mock_executor(address, jobdir, task_def):
     message back to address.
     """
     task = models.Task(**task_def)
-    task.status = task.params.get('status') or enums.Status.completed.name
+    task.status = task.params.get('status') or str(enums.Status.completed)
     executors.send_data(address, task.dict())

@@ -51,7 +51,7 @@ async def test_shell_executor():
 @pytest.mark.asyncio
 async def test_docker_executor():
     """
-    Live-test the docker_executor. 
+    Live-test the docker_executor.
 
     (NOTE: Running commands in a docker container takes time as compared with the shell.
     So the number of docker commands we test is limited.)

@@ -5,7 +5,7 @@ import pytest
 from postq import q, tables
 from postq.enums import Status
 from postq.executors import shell_executor
-from postq.models import Job, Workflow
+from postq.models import Job
 from postq.tests.mocks import mock_executor
 
 
@@ -15,34 +15,34 @@ from postq.tests.mocks import mock_executor
     [
         # the simplest workflow: one task, no dependencies.
         {
-            'tasks': [{'name': 'a', 'depends': [], 'params': {'status': 'success'}}],
-            'status': {'a': 'success'},
+            'tasks': {'a': {'depends': [], 'params': {'status': 'success'}}},
+            'results': {'a': {'status': 'success'}},
         },
         # if the first task fails, the dependent one is cancelled.
         {
-            'tasks': [
-                {'name': 'a', 'depends': [], 'params': {'status': 'failure'}},
-                {'name': 'b', 'depends': ['a'], 'params': {'status': 'success'}},
-            ],
-            'status': {'a': 'failure', 'b': 'cancelled'},
+            'tasks': {
+                'a': {'depends': [], 'params': {'status': 'failure'}},
+                'b': {'depends': ['a'], 'params': {'status': 'success'}},
+            },
+            'results': {'a': {'status': 'failure'}, 'b': {'status': 'cancelled'}},
         },
         # if a task fails, all dependent tasks are cancelled, but others run
         {
-            'tasks': [
-                {'name': 'a', 'depends': [], 'params': {'status': 'success'}},
-                {'name': 'b', 'depends': ['a'], 'params': {'status': 'failure'}},
-                {'name': 'c', 'depends': ['a'], 'params': {'status': 'success'}},
-                {'name': 'd', 'depends': ['b'], 'params': {'status': 'success'}},
-                {'name': 'e', 'depends': ['c'], 'params': {'status': 'success'}},
-                {'name': 'f', 'depends': ['d', 'e'], 'params': {'status': 'success'}},
-            ],
-            'status': {
-                'a': 'success',
-                'b': 'failure',
-                'c': 'success',
-                'd': 'cancelled',
-                'e': 'success',
-                'f': 'cancelled',
+            'tasks': {
+                'a': {'depends': [], 'params': {'status': 'success'}},
+                'b': {'depends': ['a'], 'params': {'status': 'failure'}},
+                'c': {'depends': ['a'], 'params': {'status': 'success'}},
+                'd': {'depends': ['b'], 'params': {'status': 'success'}},
+                'e': {'depends': ['c'], 'params': {'status': 'success'}},
+                'f': {'depends': ['d', 'e'], 'params': {'status': 'success'}},
+            },
+            'results': {
+                'a': {'status': 'success'},
+                'b': {'status': 'failure'},
+                'c': {'status': 'success'},
+                'd': {'status': 'cancelled'},  # depends on 'b'
+                'e': {'status': 'success'},
+                'f': {'status': 'cancelled'},  # depends on 'd' -> 'b'
             },
         },
     ],
@@ -53,14 +53,13 @@ async def test_process_job_task_result_status(item):
     the job as a whole is as expected.
     """
     qname, number = 'test', 1
-    job = Job(
-        id=uuid4(), status='queued', qname=qname, workflow={'tasks': item['tasks']}
-    )
+    job = Job(id=uuid4(), status='queued', qname=qname, tasks=item['tasks'])
     joblog = await q.process_job(qname, number, job, mock_executor)
-    joblog.workflow = Workflow(**joblog.workflow)
-    for task in joblog.workflow.tasks:
-        assert task.status == item['status'][task.name]
-    assert joblog.status == str(max(Status[task.status] for task in job.workflow.tasks))
+    for task_name, task in joblog.tasks.items():
+        assert task.status == item['results'][task_name]['status']
+    assert joblog.status == str(
+        max(Status[task.status] for task in joblog.tasks.values())
+    )
 
 
 @pytest.mark.asyncio
@@ -71,21 +70,19 @@ async def test_transact_job(database):
     """
     # queue the job
     qname = 'test'
-    job = Job(
-        qname=qname, workflow={'tasks': [{'name': 'a', 'params': {'command': "ls"}}]}
-    )
+    job = Job(qname=qname, tasks={'a': {'command': 'ls'}})
     record = await database.fetch_one(
-        tables.Job.insert().returning(*tables.Job.c), values=job.dict()
+        tables.Job.insert().returning(*tables.Job.columns), values=job.dict()
     )
     job.update(**record)
 
     # process one job from the queue
     result = await q.transact_one_job(database, qname, 1, shell_executor)
     job_record = await database.fetch_one(
-        tables.Job.select().where(tables.Job.c.id == job.id).limit(1)
+        tables.Job.select().where(tables.Job.columns.id == job.id).limit(1)
     )
     joblog_record = await database.fetch_one(
-        tables.JobLog.select().where(tables.JobLog.c.id == job.id).limit(1)
+        tables.JobLog.select().where(tables.JobLog.columns.id == job.id).limit(1)
     )
     assert result is True
     assert job_record is None  # already deleted

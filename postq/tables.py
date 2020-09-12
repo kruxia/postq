@@ -1,7 +1,5 @@
-from sqlalchemy import Column, DateTime, MetaData, SmallInteger, String, Table, text
+from sqlalchemy import Column, DateTime, MetaData, String, Table, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-
-from . import enums
 
 metadata = MetaData(schema='postq')
 
@@ -10,7 +8,7 @@ Job = Table(
     metadata,
     Column('id', UUID, primary_key=True, server_default=text("gen_random_uuid()")),
     Column('qname', String, nullable=False, index=True),
-    Column('retries', SmallInteger, server_default=text("1"), index=True),
+    Column('status', String, nullable=False),
     Column(
         'queued',
         DateTime(timezone=True),
@@ -24,18 +22,23 @@ Job = Table(
         nullable=False,
         server_default=text('current_timestamp'),
     ),
-    Column('status', String, nullable=False),
-    Column('workflow', JSONB, server_default=text("'{}'::jsonb")),
+    Column('initialized', DateTime(timezone=True), nullable=True),
+    Column(
+        'logged',
+        DateTime(timezone=True),
+        nullable=True,
+    ),
+    Column('tasks', JSONB, server_default=text("'{}'::jsonb")),
     Column('data', JSONB, server_default=text("'{}'::jsonb")),
 )
 
 Job.get = (
     lambda: """
-    UPDATE postq.job job1 SET retries = retries - 1
+    UPDATE postq.job job1 SET status = 'processing'
     WHERE job1.id = ( 
         SELECT job2.id FROM postq.job job2 
         WHERE job2.qname = :qname
-        AND job2.retries > 0
+        AND job2.status = 'queued'
         AND job2.scheduled <= now()
         ORDER BY job2.queued
         FOR UPDATE SKIP LOCKED LIMIT 1 
@@ -50,7 +53,6 @@ JobLog = Table(
     metadata,
     Column('id', UUID, nullable=False),
     Column('qname', String, nullable=False),
-    Column('retries', SmallInteger),
     Column('queued', DateTime(timezone=True), nullable=False),
     Column('scheduled', DateTime(timezone=True), nullable=False),
     Column('initialized', DateTime(timezone=True), nullable=True),
@@ -60,7 +62,7 @@ JobLog = Table(
         nullable=False,
         server_default=text('current_timestamp'),
     ),
-    Column('status', String, nullable=False, default=enums.Status.queued.name),
-    Column('workflow', JSONB, server_default=text("'{}'::jsonb")),
+    Column('status', String, nullable=False),
+    Column('tasks', JSONB, server_default=text("'{}'::jsonb")),
     Column('data', JSONB, server_default=text("'{}'::jsonb")),
 )
