@@ -16,12 +16,8 @@ def executor(
     runner: Callable[[Task, str], Dict], address: str, jobdir: str, task_def: Dict
 ) -> None:
     """
-    Execute the given Task definition in its own subprocess shell, and send a message to
+    Execute the given Task definition using the given runner, and send a message to
     the given address with the results when the subprocess has completed.
-
-    Task.params:
-
-    * command = a string representing the shell command to run.
     """
     try:
         task = Task(**task_def)
