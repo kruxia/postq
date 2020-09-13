@@ -2,7 +2,7 @@ import json
 import os
 from codecs import open
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 PATH = os.path.dirname(os.path.abspath(__file__))
 
@@ -17,6 +17,7 @@ if __name__ == '__main__':
     setup(
         long_description=README,
         long_description_content_type='text/markdown',
+        packages=find_packages(exclude=['docs', 'tests*']),
         include_package_data=True,
         **CONFIG
     )
