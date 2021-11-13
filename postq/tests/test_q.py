@@ -1,11 +1,12 @@
 from uuid import uuid4
 
 import pytest
+import sqly
 
-from postq import q, tables
+from postq import q
 from postq.enums import Status
 from postq.executors import shell_executor
-from postq.models import Job
+from postq.models import Job, Queue
 from postq.tests.mocks import mock_executor
 
 
@@ -63,26 +64,27 @@ async def test_process_job_task_result_status(item):
 
 
 @pytest.mark.asyncio
-async def test_transact_job(database):
+async def test_transact_job(database, connection):
     """
     Use the queue database to transact a single job, and verify that the job was
     completed correctly. (This tests the transaction process, not the workflow logic.)
     """
     # queue the job
-    qname = 'test'
-    job = Job(qname=qname, tasks={'a': {'command': 'ls'}})
-    record = await database.fetch_one(
-        tables.Job.insert().returning(*tables.Job.columns), values=job.dict()
-    )
-    job.update(**record)
+    queue = Queue(qname='test', dialect=sqly.Dialect.ASYNCPG)
+    job = Job(qname=queue.qname, tasks={'a': {'command': 'ls'}})
+    job.update(**await connection.fetchrow(*queue.put(job)))
+    print(job.dict())
 
     # process one job from the queue
-    result = await q.transact_one_job(database, qname, 1, shell_executor)
-    job_record = await database.fetch_one(
-        tables.Job.select().where(tables.Job.columns.id == job.id).limit(1)
+    result = await q.transact_one_job(
+        database, queue, 1, shell_executor, connection=connection
     )
-    joblog_record = await database.fetch_one(
-        tables.JobLog.select().where(tables.JobLog.columns.id == job.id).limit(1)
+    job_record = await connection.fetchrow(*queue.get())
+    joblog_record = await connection.fetchrow(
+        *queue.dialect.render(
+            "select * from postq.job_log where id=:job_id limit 1",
+            {'job_id': job.id},
+        )
     )
     assert result is True
     assert job_record is None  # already deleted

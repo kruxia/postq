@@ -1,0 +1,12 @@
+id: 20211113162456006
+app: postq
+name: init
+depends:
+- sqly:20211105034808482_init
+applied: null
+doc: null
+up: >-
+  CREATE EXTENSION IF NOT EXISTS pgcrypto;
+  CREATE SCHEMA IF NOT EXISTS postq;
+dn: >-
+  DROP SCHEMA IF EXISTS postq;

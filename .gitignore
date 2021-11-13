@@ -1,1 +1,5 @@
 coverage
+__pycache__
+.coverage
+.envrc
+*.egg-info

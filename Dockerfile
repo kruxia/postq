@@ -1,12 +1,12 @@
 # postq for docker
-FROM python:3.8-slim-buster
+FROM python:3.9-slim-buster
 LABEL maintainer="Sean Harrison <sah@kruxia.com>"
 
 WORKDIR /app
 
-# install system requirements -- psql, docker (without the docker daemon?)
+# install system requirements -- psql, docker
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends --no-install-suggests \
         postgresql-client \
         apt-transport-https \
         ca-certificates \
@@ -22,9 +22,9 @@ RUN apt-get update \
         $(lsb_release -cs) \
         stable" \
     && apt-get update \
-    && apt-get install -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends --no-install-suggests \
         docker-ce docker-ce-cli \ 
-        # containerd.io \
+        containerd.io \
     && rm -rf /var/lib/apt/lists/*
 
 COPY req/ req/

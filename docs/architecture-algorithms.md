@@ -7,7 +7,9 @@
 * **Task definitions** are objects that include:
     * name = the name of the Task, must be unique in this Workflow (raise an error if not unique)
     * depends = a list of Task names that this Task depends on having completed before it begins.
-    * params = values that are needed to run the task, such as the image name, any environment variables that must be set in that image, and any volume mounts that must be done.
+    * command = the command to be run by the Task.
+    * image = the image to be used for the Task (Docker executor)
+    * params = values that are needed to run the task, such as any environment variables that must be set in the image, or and any volume mounts that must be done.
 * **Job Worker** = a persistent process that listens to the Job queue, loads Jobs, and executes their Workflows. The Job Worker only knows about the Workflow and its Tasks -- nothing about the business.
 * **Job files** = storage that all Tasks in a Job can share. Possible backends include filesystem/volume, S3/minio, and Azure Blob Storage.
 * **Executors** = ways of running ~~Tasks~~Workflows. Each Job worker is defined to run with a particular Executor, based on the environment in which it is running. (Workflows don't know anything about the Executor(s) that will be running them.)

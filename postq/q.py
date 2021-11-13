@@ -8,13 +8,13 @@ from pathlib import Path
 from threading import Thread
 from typing import Callable
 
+import asyncpg
+import sqly
 import zmq
 import zmq.asyncio
-from databases import Database
 
-from postq import tables
 from postq.enums import Status
-from postq.models import Job, Task
+from postq.models import Job, Queue, Task
 
 log = logging.getLogger(__name__)
 
@@ -22,8 +22,8 @@ log = logging.getLogger(__name__)
 async def manage_queue(
     database_url: str,
     qname: str,
-    listeners: int = 1,
-    max_sleep: int = 30,
+    listeners: int = None,
+    max_sleep: int = 8,
     executor: Callable[[str, dict, str], None] = None,
 ):
     """
@@ -31,7 +31,7 @@ async def manage_queue(
 
     * database_url = database connection url
     * qname = name of the queue to listen to
-    * listeners = number of listeners to launch in coroutines
+    * listeners = number of listeners to launch in coroutines (default: num CPUs)
     * max_sleep = the maximum sleep time for a given listener
 
     Each listener runs in a separate coroutine. A listener only runs one job at a time.
@@ -40,55 +40,61 @@ async def manage_queue(
     they will each poll the database separately, and they will each launch one job at a
     time with parallelized tasks.
     """
-    database = Database(database_url, min_size=listeners, max_size=listeners)
-    await database.connect()
+    listeners = listeners or os.cpu_count()
+    database = await asyncpg.create_pool(
+        dsn=database_url,
+        min_size=listeners,
+        max_size=listeners,
+        max_inactive_connection_lifetime=10,
+    )
+    queue = Queue(
+        qname=qname, dialect=sqly.Database.connection_string_dialect(database_url)
+    )
     await asyncio.gather(
         *[
-            listen_queue(database, qname, number, max_sleep, executor)
-            for number in range(listeners)
+            listen_queue(database, queue, listener, max_sleep, executor)
+            for listener in range(listeners)
         ]
     )
 
 
 async def listen_queue(
-    database: Database,
-    qname: str,
-    number: int,
+    database: asyncpg.Pool,
+    queue: Queue,
+    listener: int,
     max_sleep: int = 30,
     executor: Callable[[str, dict, str], None] = None,
 ):
     """
-    Poll the 'qname' queue for jobs, processing each one in order. When there are no
+    Poll the queue for jobs, processing each one in order. When there are no
     jobs, wait for an increasing number of seconds up to max_sleep.
     """
     wait_time = 1
     while True:
-        result = await transact_one_job(database, qname, number, executor)
+        result = await transact_one_job(database, queue, listener, executor)
         wait_time = 1 if result else min(round(wait_time * 1.618), max_sleep)
-        log.debug("[%s %02d] sleep = %d sec...", qname, number, wait_time)
+        log.debug("[%s %02d] sleep = %d sec...", queue, listener, wait_time)
         await asyncio.sleep(wait_time)
 
 
-async def transact_one_job(database, qname, number, executor):
+async def transact_one_job(database, queue, listener, executor, connection=None):
+    if not connection:
+        connection = await database.acquire()
     # in a single database transaction...
-    async with database.transaction():
+    async with connection.transaction():
         # poll the Q for available jobs
-        if record := await database.fetch_one(
-            tables.Job.get(), values={'qname': qname}
-        ):
+        if record := await connection.fetchrow(*queue.get()):
             job = Job(**record)
-            log.debug("[%s %02d] job = %r", qname, number, job)
-            joblog = await process_job(qname, number, job, executor)
-            await database.execute(query=tables.JobLog.insert(), values=joblog.dict())
-            await database.execute(
-                'delete from postq.job where id=:id', values={'id': job.id}
-            )
+            log.debug("[%s %02d] job = %r", queue.qname, listener, job)
+            joblog = await process_job(queue.qname, listener, job, executor)
+            await connection.execute(*queue.put_log(joblog))
+            await connection.execute(*queue.delete(job.id))
             return True
 
 
 async def process_job(
     qname: str,
-    number: int,
+    listener: int,
     job: Job,
     executor: Callable[[str, dict, str], None],
 ) -> Job:
@@ -115,12 +121,12 @@ async def process_job(
     automatically destroyed when the job is completed.
     """
     log.info(
-        "[%s %02d] processing Job: %s [queued=%s]", qname, number, job.id, job.queued
+        "[%s %02d] processing Job: %s [queued=%s]", qname, listener, job.id, job.queued
     )
     job = deepcopy(job)
 
     # bind PULL socket (task sink)
-    socket_file = Path(os.getenv('TMPDIR', '')) / f'.postq-{qname}-{number:02d}.ipc'
+    socket_file = Path(os.getenv('TMPDIR', '')) / f'.postq-{qname}-{listener:02d}.ipc'
     address = f"ipc://{socket_file}"
     task_sink = bind_pull_socket(address)
 
@@ -153,7 +159,8 @@ async def process_job(
             result_task = Task(**json.loads(result))
             log.debug("[%s] %s result = %r", address, task.name, result_task)
 
-            # when a task completes, update the task definition with its status and errors.
+            # when a task completes, update the task definition with its status and
+            # errors.
             task = job.tasks[result_task.name]
             task.update(**result_task.dict())
 
@@ -170,7 +177,7 @@ async def process_job(
     job.status = str(max([Status[task.status] for task in job.tasks.values()]))
 
     log.info(
-        "[%s %02d] completed Job: %s [status=%s]", qname, number, job.id, job.status
+        "[%s %02d] completed Job: %s [status=%s]", qname, listener, job.id, job.status
     )
     return job
 

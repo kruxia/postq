@@ -9,7 +9,9 @@ psql ${DATABASE_URL} -q -c "CREATE DATABASE ${POSTGRES_DB}_test"
 DATABASE_URL=${DATABASE_URL}_test
 
 # migrate the test database
-alembic upgrade head
+sqly migrate $(sqly migrations postq | tail -1)
 
 # Run the pytest command
+black -q --check postq
+flake8 postq
 pytest $@

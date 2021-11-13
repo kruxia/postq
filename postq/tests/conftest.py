@@ -1,15 +1,23 @@
 import os
 
+import asyncpg
 import pytest
-from databases import Database
 
 
 @pytest.fixture
-async def database():
+async def database(scope='session'):
     # ensure that all database operations are isolated within each test case by rolling
     # back each test case's transaction
-    database = Database(os.getenv('DATABASE_URL'))
-    await database.connect()
-    tx = await database.transaction()
+    database = await asyncpg.create_pool(
+        dsn=os.getenv('DATABASE_URL'), min_size=1, max_size=1
+    )
     yield database
-    await tx.rollback()
+
+
+@pytest.fixture
+async def connection(database):
+    connection = await database.acquire()
+    trx = connection.transaction()
+    await trx.start()
+    yield connection
+    await trx.rollback()
