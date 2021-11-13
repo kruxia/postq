@@ -302,3 +302,13 @@ class Queue(Model):
             """,
             {'job_id': str(job_id)},
         )
+
+    def get_log(self, **filters):
+        return self.dialect.render(
+            "select * from postq.job_log"
+            + (f"where {Query.filters(filters)}" if filters else ''),
+            filters,
+        )
+
+    def query(self, *args, **kwargs):
+        return self.dialect.render(*args, **kwargs)

@@ -6,7 +6,7 @@ PostQ is a job queue system with
 * parallel task execution
 * shared files among tasks
 * a PostgreSQL database backend
-* choice of {shell, docker, [coming soon: kubernetes]} task executors
+* choice of task executors: {shell, docker, [coming soon: kubernetes]}
 * easy on-ramp for developers: `git pull https://github.com/kruxia/postq; cd postq; docker-compose up` and you're running PostQ
 
 ## Features 
@@ -33,7 +33,7 @@ PostQ is a job queue system with
 
     PostgreSQL provides persistence and ACID transaction guarantees. It is the simplest way to ensure that a job is not lost, but is processed exactly once. PostgreSQL is also already running in many web and microservice application clusters, so building on Postgres enables developers to easily add a Job Queue to their application without substantially increasing the necessary complexity of their application. PostgreSQL combines excellent speed with fantastic reliability, durability, and transactional guarantees. 
 
-* **The Docker [and coming soon Kubernetes] Executor Runs each Task in a Container Using any Image.** 
+* **The Docker Executor Runs each Task in a Container Using any Image.** 
 
     Many existing task queue systems assume that the programming environment in which the queue worker is written is available for the execution of each task. For example, Celery tasks are written and run in python. 
     
@@ -64,31 +64,31 @@ $ docker-compose exec postq ipython
 ```python
 # (Using the ipython shell, which allows async/await without an explicit event loop.)
 import os
-from databases import Database
-from postq import models, tables
+import time
+import asyncpg
+from postq import models
 
-database = Database(os.getenv('DATABASE_URL'))
-await database.connect()
+queue = models.Queue(qname='playq')
+database = await asyncpg.create_pool(dsn=os.getenv('DATABASE_URL'))
+connection = await database.acquire()
 job = models.Job(
-    tasks= {'a': {'image': 'debian:bullseye-slim', 'command': 'echo Hey!'}}
+    tasks={'a': {'command': 'echo Hey!', 'params': {'image': 'debian:bullseye-slim'}}}
 )
-record = await database.fetchrow(
-    tables.Job.insert().returning(*tables.Job.columns), values=job.dict()
-)
-
-# Then, after a few seconds...
-
-joblog = models.Job(
+job.update(
     **await database.fetchrow(
-        tables.JobLog.select().where(
-            tables.JobLog.columns.id==record['id']
-        ).limit(1)
+        *queue.put(job)
     )
 )
 
-print(joblog.tasks['a'].results)
+# Then, wait a few seconds...
+time.sleep(5)
 
-# Hey!
+joblog = models.Job(
+    **await connection.fetchrow(
+        *queue.get_log(id=job.id)
+    )
+)
+
+print(joblog.tasks['a'].results)  # Hey!
 ```
 Now you have a job log entry with the output of your command in the task results. :tada:
-
