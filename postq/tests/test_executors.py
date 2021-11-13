@@ -23,24 +23,26 @@ async def test_shell_executor():
         {'task': {'name': 'a'}, 'result': {'status': 'error'}},
         # Task with cmd that works
         {
-            'task': {'name': 'a', 'params': {'command': 'echo hi'}},
+            'task': {'name': 'a', 'command': 'echo hi'},
             'result': {'status': 'success', 'results': 'hi\n'},
         },
         # Task with cmd that errors
         {
-            'task': {'name': 'a', 'params': {'command': 'exit 1'}},
+            'task': {'name': 'a', 'command': 'exit 1'},
             'result': {'status': 'error'},
         },
         # Task with cmd that warns
         {
-            'task': {'name': 'a', 'params': {'command': '>&2 echo "error"'}},
+            'task': {'name': 'a', 'command': '>&2 echo "error"'},
             'result': {'status': 'warning'},
         },
     ]
 
     for item in data:
+        print('item =', item)
         executor(address, jobdir, {**item['task']})
         result = await task_sink.recv_json()
+        print('result =', result)
         for key in item['result']:
             assert result[key] == item['result'][key]
 
@@ -70,14 +72,15 @@ async def test_docker_executor():
         {'task': {'name': 'a'}, 'result': {'status': 'error'}},
         # Task with a name and command but no image -> error
         {
-            'task': {'name': 'a', 'params': {'command': 'ls'}},
+            'task': {'name': 'a', 'command': 'ls'},
             'result': {'status': 'error'},
         },
         # Task with cmd that works (stdout, no stderr, no exit failure code)
         {
             'task': {
                 'name': 'a',
-                'params': {'command': 'echo hi', 'image': 'debian:buster-slim'},
+                'command': 'echo hi',
+                'params': {'image': 'debian:bullseye-slim'},
             },
             'result': {'status': 'success', 'results': 'hi\r\n'},
         },
@@ -85,7 +88,8 @@ async def test_docker_executor():
         {
             'task': {
                 'name': 'a',
-                'params': {'command': 'exit 1', 'image': 'debian:buster-slim'},
+                'command': 'exit 1',
+                'params': {'image': 'debian:bullseye-slim'},
             },
             'result': {'status': 'error'},
         },
@@ -93,18 +97,18 @@ async def test_docker_executor():
         {
             'task': {
                 'name': 'a',
-                'params': {
-                    'command': '>&2 echo "error"',
-                    'image': 'debian:buster-slim',
-                },
+                'command': '>&2 echo "error"',
+                'params': {'image': 'debian:bullseye-slim'},
             },
             'result': {'status': 'warning'},
         },
     ]
 
     for item in data:
+        print('item =', item)
         executor(address, jobdir, {**item['task']})
         result = await task_sink.recv_json()
+        print('result =', result)
         for key in item['result']:
             assert result[key] == item['result'][key]
 

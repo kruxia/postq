@@ -24,16 +24,20 @@ class Task(Model):
 
     * name = the unique name of this task in this workflow
     * depends = the other tasks (names) that must be completed before this task
+    * command = the command that this task executes
+    * image = the image that this task uses (Docker executor)
     * params = other parameters, such as executor-specific parameters
     """
 
     # fields
     name: str
+    command: str = Field(default_factory=str)
+    image: str = Field(default=None)
     depends: List[str] = Field(default_factory=list)
     params: dict = Field(default_factory=dict)
     status: str = Field(default=str(Status.initialized))
-    results: str = Field(default_factory=str)
-    errors: str = Field(default_factory=str)
+    results: str = Field(default=None)
+    errors: str = Field(default=None)
 
 
 class Job(Model):
@@ -71,23 +75,6 @@ class Job(Model):
     graph: Any = Field(default_factory=nx.DiGraph)
     data: dict = Field(default_factory=dict)
 
-    def dict(self, *args, **kwargs):
-        # don't include graph in output, because it's not serializable, and it's
-        # generated automatically from tasks.
-        data = {
-            key: val
-            for key, val in super().dict(*args, **kwargs).items()
-            if key not in ['graph']
-        }
-        # filter 'name' out of tasks
-        data['tasks'] = {
-            name: {key: val for key, val in task.items() if key not in ['name']}
-            for name, task in data['tasks'].items()
-        }
-        return data
-
-    # field converters
-
     @validator('status')
     def validate_job_status(cls, value, values, **kwargs):
         if value not in Status.__members__.keys():
@@ -95,18 +82,19 @@ class Job(Model):
         return value
 
     @validator('tasks', pre=True)
-    def convert_job_tasks(cls, value, values, **kwargs):
+    def convert_job_tasks(cls, value):
         # convert a string to a dict
         if isinstance(value, str):
             value = json.loads(value)
+
         # convert values that are dicts to Task instances
         return {
-            key: (
-                Task(name=key, **{k: v for k, v in val.items() if k != 'name'})
+            name: (
+                Task(name=name, **{k: v for k, v in val.items() if k != 'name'})
                 if isinstance(val, dict)
                 else val
             )
-            for key, val in value.items()
+            for name, val in value.items()
         }
 
     @validator('data', pre=True)
@@ -248,22 +236,47 @@ class Job(Model):
             )
         )
 
+    def update(self, **kwargs):
+        super().update(**kwargs)
+        for attr in [self.tasks, self.data]:
+            if isinstance(attr, str):
+                attr = json.loads(attr)
+
+    def dict(self, *args, **kwargs):
+        # don't include graph in output, because it's not serializable, and it's
+        # generated automatically from tasks.
+        exclude = {'graph'} | (
+            (kwargs.pop('exclude') or set()) if 'exclude' in kwargs else set()
+        )
+        return super().dict(*args, exclude=exclude, **kwargs)
+        # # filter 'name' out of tasks
+        # data['tasks'] = {
+        #     name: {key: val for key, val in task.items() if key not in ['name']}
+        #     for name, task in data['tasks'].items()
+        # }
+        # return data
+
+    # field converters
+
 
 class Queue(Model):
     qname: str
     dialect: Dialect = Dialect.ASYNCPG
 
-    def put(self, job):
+    def put(self, job, table='postq.job'):
         job_data = job.dict(exclude_none=True)
         return self.dialect.render(
             f"""
-            INSERT INTO postq.job
+            INSERT INTO {table}
                 ({Query.fields(job_data)})
             VALUES ({Query.params(job_data)})
             RETURNING *
             """,
             job_data,
         )
+
+    def put_log(self, job):
+        return self.put(job, table='postq.job_log')
 
     def get(self):
         return self.dialect.render(

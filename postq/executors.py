@@ -21,10 +21,11 @@ def executor(
     """
     try:
         task = Task(**task_def)
+        assert task.command
 
         # execute the task and gather the results and any errors into the task
         process = subprocess.run(**runner(task, jobdir))
-        task.results = process.stdout.decode()  # TODO: I'm not happy with forcing UTF-8
+        task.results = process.stdout.decode()
         task.errors = process.stderr.decode()
         if process.returncode > 0:
             task.status = str(Status.error)
@@ -58,7 +59,7 @@ def send_data(address: str, data: dict):
 
 def shell_runner(task, jobdir):
     return {
-        'args': task.params['command'],
+        'args': task.command,
         'cwd': jobdir,
         'shell': True,
         'capture_output': True,
@@ -66,8 +67,8 @@ def shell_runner(task, jobdir):
 
 
 def docker_runner(task, jobdir):
+    command = task.command
     image = task.params['image']
-    command = task.params['command']
     env = ' '.join([f'-e {key}="{val}"' for key, val in task.params.get('env') or {}])
     vol = f'-v {jobdir}:/jobdir'
     cwd = '-w /jobdir'

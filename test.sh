@@ -12,4 +12,6 @@ DATABASE_URL=${DATABASE_URL}_test
 sqly migrate $(sqly migrations postq | tail -1)
 
 # Run the pytest command
+black -q --check postq
+flake8 postq
 pytest $@

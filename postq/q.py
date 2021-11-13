@@ -8,14 +8,13 @@ from pathlib import Path
 from threading import Thread
 from typing import Callable
 
+import asyncpg
+import sqly
 import zmq
 import zmq.asyncio
-import sqly
-from databases import Database
 
-from postq import tables
 from postq.enums import Status
-from postq.models import Job, Task, Queue
+from postq.models import Job, Queue, Task
 
 log = logging.getLogger(__name__)
 
@@ -42,8 +41,15 @@ async def manage_queue(
     time with parallelized tasks.
     """
     listeners = listeners or os.cpu_count()
-    database = Database(database_url, min_size=listeners, max_size=listeners)
-    queue = Queue(qname=qname, dialect=sqly.Database.connection_string_dialect(database_url))
+    database = await asyncpg.create_pool(
+        dsn=database_url,
+        min_size=listeners,
+        max_size=listeners,
+        max_inactive_connection_lifetime=10,
+    )
+    queue = Queue(
+        qname=qname, dialect=sqly.Database.connection_string_dialect(database_url)
+    )
     await asyncio.gather(
         *[
             listen_queue(database, queue, listener, max_sleep, executor)
@@ -53,7 +59,7 @@ async def manage_queue(
 
 
 async def listen_queue(
-    database: Database,
+    database: asyncpg.Pool,
     queue: Queue,
     listener: int,
     max_sleep: int = 30,
@@ -71,18 +77,18 @@ async def listen_queue(
         await asyncio.sleep(wait_time)
 
 
-async def transact_one_job(database, queue, listener, executor):
+async def transact_one_job(database, queue, listener, executor, connection=None):
+    if not connection:
+        connection = await database.acquire()
     # in a single database transaction...
-    print(f"{queue=}")
-    await database.connect()
-    async with database.transaction():
+    async with connection.transaction():
         # poll the Q for available jobs
-        if record := await database.fetch_one(*queue.get()):
+        if record := await connection.fetchrow(*queue.get()):
             job = Job(**record)
             log.debug("[%s %02d] job = %r", queue.qname, listener, job)
             joblog = await process_job(queue.qname, listener, job, executor)
-            await database.execute(query=tables.JobLog.insert(), values=joblog.dict())
-            await database.execute(*queue.delete(job.id))
+            await connection.execute(*queue.put_log(joblog))
+            await connection.execute(*queue.delete(job.id))
             return True
 
 

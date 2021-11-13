@@ -70,16 +70,16 @@ from postq import models, tables
 database = Database(os.getenv('DATABASE_URL'))
 await database.connect()
 job = models.Job(
-    tasks= {'a': {'params': {'image': 'debian:buster-slim', 'command': 'echo Hey!'}}}
+    tasks= {'a': {'image': 'debian:bullseye-slim', 'command': 'echo Hey!'}}
 )
-record = await database.fetch_one(
+record = await database.fetchrow(
     tables.Job.insert().returning(*tables.Job.columns), values=job.dict()
 )
 
 # Then, after a few seconds...
 
 joblog = models.Job(
-    **await database.fetch_one(
+    **await database.fetchrow(
         tables.JobLog.select().where(
             tables.JobLog.columns.id==record['id']
         ).limit(1)
