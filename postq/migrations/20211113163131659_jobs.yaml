@@ -56,3 +56,4 @@ dn: >-
   drop index postq_job_qname_idx;
   drop index postq_job_queued_idx;
   drop table postq.job;
+  drop table postq.job_status;
