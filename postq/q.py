@@ -10,11 +10,12 @@ from typing import Callable
 
 import zmq
 import zmq.asyncio
+import sqly
 from databases import Database
 
 from postq import tables
 from postq.enums import Status
-from postq.models import Job, Task
+from postq.models import Job, Task, Queue
 
 log = logging.getLogger(__name__)
 
@@ -42,10 +43,10 @@ async def manage_queue(
     """
     listeners = listeners or os.cpu_count()
     database = Database(database_url, min_size=listeners, max_size=listeners)
-    await database.connect()
+    queue = Queue(qname=qname, dialect=sqly.Database.connection_string_dialect(database_url))
     await asyncio.gather(
         *[
-            listen_queue(database, qname, listener, max_sleep, executor)
+            listen_queue(database, queue, listener, max_sleep, executor)
             for listener in range(listeners)
         ]
     )
@@ -53,37 +54,35 @@ async def manage_queue(
 
 async def listen_queue(
     database: Database,
-    qname: str,
+    queue: Queue,
     listener: int,
     max_sleep: int = 30,
     executor: Callable[[str, dict, str], None] = None,
 ):
     """
-    Poll the 'qname' queue for jobs, processing each one in order. When there are no
+    Poll the queue for jobs, processing each one in order. When there are no
     jobs, wait for an increasing number of seconds up to max_sleep.
     """
     wait_time = 1
     while True:
-        result = await transact_one_job(database, qname, listener, executor)
+        result = await transact_one_job(database, queue, listener, executor)
         wait_time = 1 if result else min(round(wait_time * 1.618), max_sleep)
-        log.debug("[%s %02d] sleep = %d sec...", qname, listener, wait_time)
+        log.debug("[%s %02d] sleep = %d sec...", queue, listener, wait_time)
         await asyncio.sleep(wait_time)
 
 
-async def transact_one_job(database, qname, listener, executor):
+async def transact_one_job(database, queue, listener, executor):
     # in a single database transaction...
+    print(f"{queue=}")
+    await database.connect()
     async with database.transaction():
         # poll the Q for available jobs
-        if record := await database.fetch_one(
-            tables.Job.get(), values={'qname': qname}
-        ):
+        if record := await database.fetch_one(*queue.get()):
             job = Job(**record)
-            log.debug("[%s %02d] job = %r", qname, listener, job)
-            joblog = await process_job(qname, listener, job, executor)
+            log.debug("[%s %02d] job = %r", queue.qname, listener, job)
+            joblog = await process_job(queue.qname, listener, job, executor)
             await database.execute(query=tables.JobLog.insert(), values=joblog.dict())
-            await database.execute(
-                'delete from postq.job where id=:id', values={'id': job.id}
-            )
+            await database.execute(*queue.delete(job.id))
             return True
 
 

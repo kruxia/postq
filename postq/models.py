@@ -5,6 +5,7 @@ from uuid import UUID
 
 import networkx as nx
 from pydantic import BaseModel, Field, validator
+from sqly import Dialect, Query
 
 from postq.enums import Status
 
@@ -245,4 +246,46 @@ class Job(Model):
                 ),
                 self.tasks.values(),
             )
+        )
+
+
+class Queue(Model):
+    qname: str
+    dialect: Dialect = Dialect.ASYNCPG
+
+    def put(self, job):
+        job_data = job.dict(exclude_none=True)
+        return self.dialect.render(
+            f"""
+            INSERT INTO postq.job
+                ({Query.fields(job_data)})
+            VALUES ({Query.params(job_data)})
+            RETURNING *
+            """,
+            job_data,
+        )
+
+    def get(self):
+        return self.dialect.render(
+            """
+            UPDATE postq.job job1 SET status = 'processing'
+            WHERE job1.id = ( 
+                SELECT job2.id FROM postq.job job2 
+                WHERE job2.qname = :qname
+                AND job2.status = 'queued'
+                AND job2.scheduled <= now()
+                ORDER BY job2.queued
+                FOR UPDATE SKIP LOCKED LIMIT 1 
+            )
+            RETURNING job1.*;
+            """,
+            {'qname': self.qname},
+        )
+
+    def delete(self, job_id):
+        return self.dialect.render(
+            """
+            DELETE FROM postq.job WHERE id=:job_id
+            """,
+            {'job_id': str(job_id)},
         )
