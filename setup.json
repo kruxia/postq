@@ -1,6 +1,6 @@
 {
   "name": "postq",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Job queue with DAG workflows, PostgreSQL backend, and choice of job executors.",
   "url": "https://github.com/kruxia/postq",
   "author": "Sean Harrison",
@@ -12,7 +12,11 @@
     "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
     "Programming Language :: Python :: 3"
   ],
-  "entry_points": {},
+  "entry_points": {
+    "console_scripts": [
+      "postq = postq.__main__:main"
+    ]
+  },
   "extras_require": {
     "dev": [],
     "test": []

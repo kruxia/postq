@@ -170,7 +170,7 @@ class Job(Model):
             task_name: [
                 self.tasks[name] for name in nx.descendants(self.graph, task_name)
             ]
-            for task_name in self.tasks
+            for task_name in nx.lexicographical_topological_sort(self.graph)
         }
 
     # lists of tasks with various statuses

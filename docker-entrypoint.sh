@@ -9,6 +9,6 @@ until psql $DATABASE_URL -c '\l'; do
 done
 
 # upgrade the database
-alembic upgrade head
+sqly migrate $(sqly migrations postq | tail -1)
 
 exec "$@"

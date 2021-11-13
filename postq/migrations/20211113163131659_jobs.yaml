@@ -1,0 +1,58 @@
+id: 20211113163131659
+app: postq
+name: jobs
+depends:
+- postq:20211113162456006_init
+applied: null
+doc: null
+up: >-
+  create table postq.job_status (
+    name  varchar primary key,
+    value smallint not null unique
+  );
+  insert into postq.job_status (name, value) values
+    ('initialized', 0), 
+    ('queued', 1),
+    ('processing', 2),
+    ('completed', 3),
+    ('success', 4),
+    ('notice', 5),
+    ('warning', 6),
+    ('cancelled', 7),
+    ('failure', 8),
+    ('error', 9);
+
+  create table postq.job (
+    id          uuid primary key default gen_random_uuid(),
+    qname       varchar not null default '',
+    status      varchar not null default 'queued' 
+                  references postq.job_status(name),
+    initialized timestamptz not null default current_timestamp,
+    queued      timestamptz not null default current_timestamp,
+    scheduled   timestamptz not null default current_timestamp,
+    logged      timestamptz,
+    tasks       jsonb not null default '{}'::jsonb,
+    data        jsonb not null default '{}'::jsonb
+  );
+
+  create index postq_job_qname_idx on postq.job (qname);
+  create index postq_job_status_idx on postq.job (status);
+  create index postq_job_queued_idx on postq.job (queued);
+
+  create table postq.job_log (
+    id          uuid primary key,
+    qname       varchar not null,
+    status      varchar not null 
+                  references postq.job_status(name),
+    initialized timestamptz not null,
+    queued      timestamptz not null,
+    scheduled   timestamptz not null,
+    logged      timestamptz not null default current_timestamp,
+    tasks       jsonb not null default '{}'::jsonb,
+    data        jsonb not null default '{}'::jsonb
+  );
+dn: >-
+  drop table postq.job_log;
+  drop index postq_job_qname_idx;
+  drop index postq_job_queued_idx;
+  drop table postq.job;

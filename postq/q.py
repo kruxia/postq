@@ -22,8 +22,8 @@ log = logging.getLogger(__name__)
 async def manage_queue(
     database_url: str,
     qname: str,
-    listeners: int = 1,
-    max_sleep: int = 30,
+    listeners: int = None,
+    max_sleep: int = 8,
     executor: Callable[[str, dict, str], None] = None,
 ):
     """
@@ -31,7 +31,7 @@ async def manage_queue(
 
     * database_url = database connection url
     * qname = name of the queue to listen to
-    * listeners = number of listeners to launch in coroutines
+    * listeners = number of listeners to launch in coroutines (default: num CPUs)
     * max_sleep = the maximum sleep time for a given listener
 
     Each listener runs in a separate coroutine. A listener only runs one job at a time.
@@ -40,12 +40,13 @@ async def manage_queue(
     they will each poll the database separately, and they will each launch one job at a
     time with parallelized tasks.
     """
+    listeners = listeners or os.cpu_count()
     database = Database(database_url, min_size=listeners, max_size=listeners)
     await database.connect()
     await asyncio.gather(
         *[
-            listen_queue(database, qname, number, max_sleep, executor)
-            for number in range(listeners)
+            listen_queue(database, qname, listener, max_sleep, executor)
+            for listener in range(listeners)
         ]
     )
 
@@ -53,7 +54,7 @@ async def manage_queue(
 async def listen_queue(
     database: Database,
     qname: str,
-    number: int,
+    listener: int,
     max_sleep: int = 30,
     executor: Callable[[str, dict, str], None] = None,
 ):
@@ -63,13 +64,13 @@ async def listen_queue(
     """
     wait_time = 1
     while True:
-        result = await transact_one_job(database, qname, number, executor)
+        result = await transact_one_job(database, qname, listener, executor)
         wait_time = 1 if result else min(round(wait_time * 1.618), max_sleep)
-        log.debug("[%s %02d] sleep = %d sec...", qname, number, wait_time)
+        log.debug("[%s %02d] sleep = %d sec...", qname, listener, wait_time)
         await asyncio.sleep(wait_time)
 
 
-async def transact_one_job(database, qname, number, executor):
+async def transact_one_job(database, qname, listener, executor):
     # in a single database transaction...
     async with database.transaction():
         # poll the Q for available jobs
@@ -77,8 +78,8 @@ async def transact_one_job(database, qname, number, executor):
             tables.Job.get(), values={'qname': qname}
         ):
             job = Job(**record)
-            log.debug("[%s %02d] job = %r", qname, number, job)
-            joblog = await process_job(qname, number, job, executor)
+            log.debug("[%s %02d] job = %r", qname, listener, job)
+            joblog = await process_job(qname, listener, job, executor)
             await database.execute(query=tables.JobLog.insert(), values=joblog.dict())
             await database.execute(
                 'delete from postq.job where id=:id', values={'id': job.id}
@@ -88,7 +89,7 @@ async def transact_one_job(database, qname, number, executor):
 
 async def process_job(
     qname: str,
-    number: int,
+    listener: int,
     job: Job,
     executor: Callable[[str, dict, str], None],
 ) -> Job:
@@ -115,12 +116,12 @@ async def process_job(
     automatically destroyed when the job is completed.
     """
     log.info(
-        "[%s %02d] processing Job: %s [queued=%s]", qname, number, job.id, job.queued
+        "[%s %02d] processing Job: %s [queued=%s]", qname, listener, job.id, job.queued
     )
     job = deepcopy(job)
 
     # bind PULL socket (task sink)
-    socket_file = Path(os.getenv('TMPDIR', '')) / f'.postq-{qname}-{number:02d}.ipc'
+    socket_file = Path(os.getenv('TMPDIR', '')) / f'.postq-{qname}-{listener:02d}.ipc'
     address = f"ipc://{socket_file}"
     task_sink = bind_pull_socket(address)
 
@@ -153,7 +154,8 @@ async def process_job(
             result_task = Task(**json.loads(result))
             log.debug("[%s] %s result = %r", address, task.name, result_task)
 
-            # when a task completes, update the task definition with its status and errors.
+            # when a task completes, update the task definition with its status and
+            # errors.
             task = job.tasks[result_task.name]
             task.update(**result_task.dict())
 
@@ -170,7 +172,7 @@ async def process_job(
     job.status = str(max([Status[task.status] for task in job.tasks.values()]))
 
     log.info(
-        "[%s %02d] completed Job: %s [status=%s]", qname, number, job.id, job.status
+        "[%s %02d] completed Job: %s [status=%s]", qname, listener, job.id, job.status
     )
     return job
 

@@ -1,6 +1,7 @@
-alembic==1.4.2
-click==7.1.2
-databases[postgresql]==0.3.2
-pydantic==1.6.1
-pyzmq==19.0.2
-networkx==2.5
+asyncpg==0.24.0
+click==8.0.3
+databases==0.5.3
+networkx==2.6.3
+pydantic==1.8.2
+pyzmq==22.3.0
+sqly==0.7.0
