@@ -15,7 +15,6 @@ async def test_shell_executor():
     address = f'ipc://{socket_file}'
     task_sink = q.bind_pull_socket(address)
     executor = executors.shell_executor
-    jobdir = os.getcwd()
     data = [
         # Empty task -> error
         {'task': {}, 'result': {'status': 'error'}},
@@ -40,7 +39,7 @@ async def test_shell_executor():
 
     for item in data:
         print('item =', item)
-        executor(address, jobdir, {**item['task']})
+        executor(address, {**item['task']})
         result = await task_sink.recv_json()
         print('result =', result)
         for key in item['result']:
@@ -64,7 +63,6 @@ async def test_docker_executor():
     address = f'ipc://{socket_file}'
     task_sink = q.bind_pull_socket(address)
     executor = executors.docker_executor
-    jobdir = os.getcwd()
     data = [
         # Empty task -> error
         {'task': {}, 'result': {'status': 'error'}},
@@ -106,7 +104,7 @@ async def test_docker_executor():
 
     for item in data:
         print('item =', item)
-        executor(address, jobdir, {**item['task']})
+        executor(address, {**item['task']})
         result = await task_sink.recv_json()
         print('result =', result)
         for key in item['result']:

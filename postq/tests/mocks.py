@@ -1,7 +1,7 @@
 from postq import enums, executors, models
 
 
-def mock_executor(address, jobdir, task_def):
+def mock_executor(address, task_def):
     """
     An executor that simulates running a task without actually calling a subprocess.
 

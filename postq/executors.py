@@ -12,9 +12,7 @@ from postq.models import Task
 log = logging.getLogger(__name__)
 
 
-def executor(
-    runner: Callable[[Task, str], Dict], address: str, jobdir: str, task_def: Dict
-) -> None:
+def executor(runner: Callable[[Task, str], Dict], address: str, task_def: Dict) -> None:
     """
     Execute the given Task definition using the given runner, and send a message to
     the given address with the results when the subprocess has completed.
@@ -24,7 +22,7 @@ def executor(
         assert task.command
 
         # execute the task and gather the results and any errors into the task
-        process = subprocess.run(**runner(task, jobdir))
+        process = subprocess.run(**runner(task))
         task.results = process.stdout.decode()
         task.errors = process.stderr.decode()
         if process.returncode > 0:
@@ -57,22 +55,19 @@ def send_data(address: str, data: dict):
     task_sender.send_json(data)
 
 
-def shell_runner(task, jobdir):
+def shell_runner(task):
     return {
         'args': task.command,
-        'cwd': jobdir,
         'shell': True,
         'capture_output': True,
     }
 
 
-def docker_runner(task, jobdir):
+def docker_runner(task):
     command = task.command
     image = task.params['image']
     env = ' '.join([f'-e {key}="{val}"' for key, val in task.params.get('env') or {}])
-    vol = f'-v {jobdir}:/jobdir'
-    cwd = '-w /jobdir'
-    cmd = f'docker run -t {env} {vol} {cwd} {image} {command}'
+    cmd = f'docker run -t {env} {image} {command}'
 
     return {'args': cmd, 'shell': True, 'capture_output': True}
 

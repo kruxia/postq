@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import os
-import tempfile
 from copy import deepcopy
 from pathlib import Path
 from threading import Thread
@@ -131,45 +130,36 @@ async def process_job(
     address = f"ipc://{socket_file}"
     task_sink = bind_pull_socket(address)
 
-    with tempfile.TemporaryDirectory() as jobdir:
-        # The jobdir directory will be available to all tasks in the job workflow, to
-        # use for temporary files in the processing of tasks.
+    # loop until all the tasks are finished (either completed or failed)
+    while min([Status[task.status] for task in job.tasks.values()]) < Status.completed:
+        # do all the ready tasks (ancestors are completed and not failed)
+        for task in job.ready_tasks:
+            log.info('[%s] ready = %r', address, task.dict())
 
-        # Write the Job definition to a file named "job.json" in the jobdir.
-        with open(Path(jobdir) / 'job.json', 'wb') as f:
-            f.write(job.json().encode())
+            # start an executor thread for each task. give it the address to send a
+            # message and the task definition. (send the task definition as a `.dict()`)
+            thread = Thread(target=executor, args=(address, task.dict()))
+            thread.start()
+            task.status = str(Status.processing)
 
-        # loop until all the tasks are finished (either completed or failed)
-        while (
-            min([Status[task.status] for task in job.tasks.values()]) < Status.completed
-        ):
-            # do all the ready tasks (ancestors are completed and not failed)
-            for task in job.ready_tasks:
-                log.info('[%s] %s ready = %r', address, task.name, task)
+        # wait for any task to complete. (all tasks send a message to the task_sink.
+        # the task_result is the task definition itself as a `.dict()`).
+        result = await task_sink.recv()
+        result_task = Task(**json.loads(result))
+        log.info("[%s] %s result = %r", address, task.name, result_task.dict())
 
-                # start an executor thread for each task. give it the address to send a
-                # message, the location of the job dir, and the task definition. (send
-                # the task definition as a copy via `.dict()`)
-                thread = Thread(target=executor, args=(address, jobdir, task.dict()))
-                thread.start()
-                task.status = str(Status.processing)
+        # when a task completes, update the task definition with its status and
+        # errors.
+        task = job.tasks[result_task.name]
+        task.update(**result_task.dict())
 
-            # wait for any task to complete. (all tasks send a message to the task_sink.
-            # the task_result is the task definition itself as a `.dict()`).
-            result = await task_sink.recv()
-            result_task = Task(**json.loads(result))
-            log.info("[%s] %s result = %r", address, task.name, result_task)
-
-            # when a task completes, update the task definition with its status and
-            # errors.
-            task = job.tasks[result_task.name]
-            task.update(**result_task.dict())
-
-            # if it failed, mark all descendants as cancelled
-            if Status[task.status] >= Status.cancelled:
-                for descendant_task in job.task_descendants[task.name]:
-                    log.info("[%s] %s cancel = %r", address, task.name, descendant_task)
-                    descendant_task.status = str(Status.cancelled)
+        # if it failed, mark all descendants as cancelled
+        if Status[task.status] >= Status.cancelled:
+            for descendant_task in job.task_descendants[task.name]:
+                log.info(
+                    "[%s] %s cancel = %r", address, task.name, descendant_task.dict()
+                )
+                descendant_task.status = str(Status.cancelled)
 
     # all the tasks have now either succeeded, failed, or been cancelled. The Job status
     # is the maximum (worst) status of any task.
