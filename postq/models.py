@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, List
 from uuid import UUID
 
@@ -30,12 +30,14 @@ class Task(Model):
     """
 
     # fields
+    id: UUID = Field(default=None)
     name: str
-    command: str = Field(default_factory=str)
-    image: str = Field(default=None)
     depends: List[str] = Field(default_factory=list)
+    command: str = Field(default_factory=str)
     params: dict = Field(default_factory=dict)
     status: str = Field(default=str(Status.initialized))
+    created: datetime = Field(default=None)
+    updated: datetime = Field(default=None)
     results: str = Field(default=None)
     errors: str = Field(default=None)
 
@@ -50,36 +52,30 @@ class Job(Model):
     * status - the current status of the job, one of the values in postq.Status.
     * queued - timestamp when the job was queued.
     * scheduled - timestamp when the job is scheduled (= queued by default).
-    * initialed - timestamp when the job was initialized.
-    * logged - timestamp when the job was logged.
+    * completed - timestamp when the job was completed.
     * tasks - define the job's workflow. key = name, value = Task. Each task defines its
       own dependencies, command, and image. The resulting workflow must form a directed
       acyclic graph -- i.e., there cannot be a dependency loop.
       * depends - the list of names of the other tasks that this task depends on.
       * command - the command that the task runs in the image container.
       * image - {docker, kubernetes} the image that is used to run the task.
-    * graph - (generated from tasks) the DAG (directed acyclic graph) of tasks (a
-      networkx.DiGraph), which is validated as acyclic.
     * data - extra data that is needed by the job or its tasks to complete the workflow.
+    * graph - (computed from tasks) the DAG (directed acyclic graph) of tasks (a
+      networkx.DiGraph), which is validated as acyclic.
     """
 
     # fields
     id: UUID = Field(default=None)
     qname: str = Field(default='')
-    status: str = Field(default=str(Status.queued))
+    status: str = Field(default=str(Status.initialized))
     queued: datetime = Field(default=None)
     scheduled: datetime = Field(default=None)
-    initialized: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
-    logged: datetime = Field(default=None)
+    completed: datetime = Field(default=None)
     tasks: Dict[str, Task] = Field(default_factory=dict)
     graph: Any = Field(default_factory=nx.DiGraph)
     data: dict = Field(default_factory=dict)
 
-    @validator('status')
-    def validate_job_status(cls, value, values, **kwargs):
-        if value not in Status.__members__.keys():
-            raise ValueError(f'value must be one of {list(Status.__members__.keys())}')
-        return value
+    # field converters
 
     @validator('tasks', pre=True)
     def convert_job_tasks(cls, value):
@@ -102,6 +98,14 @@ class Job(Model):
         # convert a string to a dict
         if isinstance(value, str):
             value = json.loads(value)
+        return value
+
+    # field validators
+
+    @validator('status')
+    def validate_job_status(cls, value, values, **kwargs):
+        if value not in Status.__members__.keys():
+            raise ValueError(f'value must be one of {list(Status.__members__.keys())}')
         return value
 
     @validator('tasks')
@@ -245,29 +249,30 @@ class Job(Model):
     def dict(self, *args, **kwargs):
         # don't include graph in output, because it's not serializable, and it's
         # generated automatically from tasks.
-        exclude = {'graph'} | (
+        exclude = {'graph'} | set(
             (kwargs.pop('exclude') or set()) if 'exclude' in kwargs else set()
         )
         return super().dict(*args, exclude=exclude, **kwargs)
-        # # filter 'name' out of tasks
-        # data['tasks'] = {
-        #     name: {key: val for key, val in task.items() if key not in ['name']}
-        #     for name, task in data['tasks'].items()
-        # }
-        # return data
-
-    # field converters
 
 
 class Queue(Model):
     qname: str
     dialect: Dialect = Dialect.ASYNCPG
 
-    def put(self, job, table='postq.job'):
+    def create(self):
+        return self.dialect.render(
+            """
+            INSERT INTO postq.queue (qname) values (:qname)
+            RETURNING *
+            """,
+            self.dict(),
+        )
+
+    def put(self, job):
         job_data = job.dict(exclude_none=True)
         return self.dialect.render(
             f"""
-            INSERT INTO {table}
+            INSERT INTO postq.job
                 ({Query.fields(job_data)})
             VALUES ({Query.params(job_data)})
             RETURNING *
@@ -275,40 +280,38 @@ class Queue(Model):
             job_data,
         )
 
-    def put_log(self, job):
-        return self.put(job, table='postq.job_log')
-
     def get(self):
         return self.dialect.render(
             """
-            UPDATE postq.job job1 SET status = 'processing'
-            WHERE job1.id = ( 
-                SELECT job2.id FROM postq.job job2 
-                WHERE job2.qname = :qname
-                AND job2.status = 'queued'
-                AND job2.scheduled <= now()
-                ORDER BY job2.queued
-                FOR UPDATE SKIP LOCKED LIMIT 1 
+            UPDATE postq.job_queued jq1 SET status = 'processing'
+            WHERE jq1.id = (
+                SELECT jq2.id
+                FROM postq.job_queued jq2
+                WHERE jq2.qname = :qname
+                    AND jq2.status = 'queued'
+                    AND jq2.scheduled <= now()
+                ORDER BY jq2.scheduled
+                FOR UPDATE SKIP LOCKED LIMIT 1
             )
-            RETURNING job1.*;
+            RETURNING jq1.*;
             """,
             {'qname': self.qname},
+        )
+
+    def update_job(self, job):
+        return self.dialect.render(
+            f"""
+            UPDATE postq.job 
+            SET {Query.assigns(job.dict(exclude=['id']))}
+            WHERE {Query.filters(['id'])}
+            """,
+            job.dict(),
         )
 
     def delete(self, job_id):
         return self.dialect.render(
             """
-            DELETE FROM postq.job WHERE id=:job_id
+            DELETE FROM postq.job_queued WHERE id=:job_id
             """,
             {'job_id': str(job_id)},
         )
-
-    def get_log(self, **filters):
-        return self.dialect.render(
-            "select * from postq.job_log"
-            + (f"where {Query.filters(filters)}" if filters else ''),
-            filters,
-        )
-
-    def query(self, *args, **kwargs):
-        return self.dialect.render(*args, **kwargs)

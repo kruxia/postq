@@ -7,7 +7,7 @@ import pytest
 @pytest.fixture
 async def database(scope='session'):
     # ensure that all database operations are isolated within each test case by rolling
-    # back each test case's transaction
+    # back each test case's transaction.
     database = await asyncpg.create_pool(
         dsn=os.getenv('DATABASE_URL'), min_size=1, max_size=1
     )

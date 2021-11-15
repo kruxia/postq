@@ -34,11 +34,13 @@ async def manage_queue(
     * listeners = number of listeners to launch in coroutines (default: num CPUs)
     * max_sleep = the maximum sleep time for a given listener
 
-    Each listener runs in a separate coroutine. A listener only runs one job at a time.
-    Listeners and job processors are I/O-bound, but the parallelized task processors
-    that they run are CPU-bound. Run as many listeners as you like, but realize that
-    they will each poll the database separately, and they will each launch one job at a
-    time with parallelized tasks.
+    Each listener runs in a separate asyncio coroutine. A listener only runs one job at
+    a time. Listeners and job processors are I/O-bound, but the parallelized task
+    processors that they run are CPU-bound.
+
+    Run as many listeners as you like; but each will poll the database separately (with
+    its own database pool connection), and each will launch one job at a time in
+    separate threads with parallelized tasks.
     """
     listeners = listeners or os.cpu_count()
     database = await asyncpg.create_pool(
@@ -70,24 +72,23 @@ async def listen_queue(
     jobs, wait for an increasing number of seconds up to max_sleep.
     """
     wait_time = 1
+    connection = await database.acquire()
     while True:
-        result = await transact_one_job(database, queue, listener, executor)
+        result = await transact_one_job(connection, queue, listener, executor)
         wait_time = 1 if result else min(round(wait_time * 1.618), max_sleep)
-        log.debug("[%s %02d] sleep = %d sec...", queue, listener, wait_time)
+        log.debug("[%r %02d] sleep = %d sec...", queue.qname, listener, wait_time)
         await asyncio.sleep(wait_time)
 
 
-async def transact_one_job(database, queue, listener, executor, connection=None):
-    if not connection:
-        connection = await database.acquire()
+async def transact_one_job(connection, queue, listener, executor):
     # in a single database transaction...
     async with connection.transaction():
         # poll the Q for available jobs
         if record := await connection.fetchrow(*queue.get()):
             job = Job(**record)
-            log.debug("[%s %02d] job = %r", queue.qname, listener, job)
-            joblog = await process_job(queue.qname, listener, job, executor)
-            await connection.execute(*queue.put_log(joblog))
+            log.info("[%s %02d] job = %r", queue.qname, listener, job)
+            job = await process_job(queue.qname, listener, job, executor)
+            await connection.execute(*queue.update_job(job))
             await connection.execute(*queue.delete(job.id))
             return True
 
@@ -144,7 +145,7 @@ async def process_job(
         ):
             # do all the ready tasks (ancestors are completed and not failed)
             for task in job.ready_tasks:
-                log.debug('[%s] %s ready = %r', address, task.name, task)
+                log.info('[%s] %s ready = %r', address, task.name, task)
 
                 # start an executor thread for each task. give it the address to send a
                 # message, the location of the job dir, and the task definition. (send
@@ -157,7 +158,7 @@ async def process_job(
             # the task_result is the task definition itself as a `.dict()`).
             result = await task_sink.recv()
             result_task = Task(**json.loads(result))
-            log.debug("[%s] %s result = %r", address, task.name, result_task)
+            log.info("[%s] %s result = %r", address, task.name, result_task)
 
             # when a task completes, update the task definition with its status and
             # errors.
@@ -167,9 +168,7 @@ async def process_job(
             # if it failed, mark all descendants as cancelled
             if Status[task.status] >= Status.cancelled:
                 for descendant_task in job.task_descendants[task.name]:
-                    log.debug(
-                        "[%s] %s cancel = %r", address, task.name, descendant_task
-                    )
+                    log.info("[%s] %s cancel = %r", address, task.name, descendant_task)
                     descendant_task.status = str(Status.cancelled)
 
     # all the tasks have now either succeeded, failed, or been cancelled. The Job status

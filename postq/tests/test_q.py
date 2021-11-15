@@ -64,28 +64,31 @@ async def test_process_job_task_result_status(item):
 
 
 @pytest.mark.asyncio
-async def test_transact_job(database, connection):
+async def test_transact_job(connection):
     """
     Use the queue database to transact a single job, and verify that the job was
     completed correctly. (This tests the transaction process, not the workflow logic.)
     """
-    # queue the job
+    # create the queue
     queue = Queue(qname='test', dialect=sqly.Dialect.ASYNCPG)
+    queue.update(**await connection.fetchrow(*queue.create()))
+
+    # queue the job
     job = Job(qname=queue.qname, tasks={'a': {'command': 'ls'}})
     job.update(**await connection.fetchrow(*queue.put(job)))
     print(job.dict())
 
     # process one job from the queue
-    result = await q.transact_one_job(
-        database, queue, 1, shell_executor, connection=connection
-    )
-    job_record = await connection.fetchrow(*queue.get())
-    joblog_record = await connection.fetchrow(
+    listener = 1
+    result = await q.transact_one_job(connection, queue, listener, shell_executor)
+    job_queued_record = await connection.fetchrow(*queue.get())
+    job_record = await connection.fetchrow(
         *queue.dialect.render(
-            "select * from postq.job_log where id=:job_id limit 1",
+            "select * from postq.job where id=:job_id limit 1",
             {'job_id': job.id},
         )
     )
     assert result is True
-    assert job_record is None  # already deleted
-    assert joblog_record['id'] == job.id  # and logged
+    assert job_queued_record is None  # already deleted
+    assert job_record['id'] == job.id  # and completed
+    assert job_record['status'] == 'success'

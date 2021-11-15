@@ -37,9 +37,9 @@ def executor(
         send_data(address, task.dict())
 
     except Exception as exc:
-        print(traceback.format_exc())
+        log.error(traceback.format_exc())
         task_def.setdefault('name', type(exc).__name__)
-        task_def['status'] = 'error'
+        task_def['status'] = str(Status.error)
         task_def['errors'] = f"{type(exc).__name__}: {str(exc)}"
         send_data(address, task_def)
 
@@ -48,7 +48,7 @@ def send_data(address: str, data: dict):
     """
     Send (PUSH) task to zmq socket address.
     """
-    # connect to PUSH socket (NOT zmq.asyncio, since this isn't a coroutine)
+    # connect to PUSH socket
     context = zmq.Context.instance()
     task_sender = context.socket(zmq.PUSH)
     task_sender.connect(address)

@@ -1,5 +1,5 @@
 # postq for docker
-FROM python:3.9-slim-buster
+FROM python:3.9-slim-bullseye
 LABEL maintainer="Sean Harrison <sah@kruxia.com>"
 
 WORKDIR /app
