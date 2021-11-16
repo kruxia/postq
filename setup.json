@@ -1,6 +1,6 @@
 {
   "name": "postq",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Job queue with DAG workflows, PostgreSQL backend, and choice of job executors.",
   "url": "https://github.com/kruxia/postq",
   "author": "Sean Harrison",
