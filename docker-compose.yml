@@ -22,13 +22,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       DEBUG: "True"
-
       DATABASE_URL: "postgresql://postq:postq@postgres/postq"
-      POSTGRES_HOST: postgres
-      POSTGRES_DB: postq
-      POSTGRES_USER: postq
-      POSTGRES_PASSWORD: postq
-
       TMPDIR: /tmp/
 
 volumes: 
