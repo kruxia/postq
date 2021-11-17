@@ -72,6 +72,7 @@ up: >-
   FOR EACH ROW EXECUTE FUNCTION postq_job_queued_job();
 
 dn: >-
+  DROP TRIGGER IF EXISTS postq_job_queued_job ON postq.job;
   DROP FUNCTION postq_job_queued_job;
   DROP TABLE postq.job_queued;
   DROP TABLE postq.job;
