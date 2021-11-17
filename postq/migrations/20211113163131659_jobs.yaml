@@ -59,7 +59,7 @@ up: >-
 
   -- When a postq.job is inserted, also insert the job into postq.job_queued
 
-  CREATE FUNCTION postq_job_queued_job() RETURNS trigger as $postq_job_queued_job$
+  CREATE OR REPLACE FUNCTION postq_job_queued_job() RETURNS trigger as $postq_job_queued_job$
     BEGIN
       INSERT INTO postq.job_queued (id, qname, status, queued, scheduled, tasks, data)
         VALUES (NEW.id, NEW.qname, 'queued', NEW.queued, NEW.scheduled, NEW.tasks, NEW.data);
@@ -72,6 +72,7 @@ up: >-
   FOR EACH ROW EXECUTE FUNCTION postq_job_queued_job();
 
 dn: >-
+  DROP FUNCTION postq_job_queued_job;
   DROP TABLE postq.job_queued;
   DROP TABLE postq.job;
   DROP TABLE postq.queue;
